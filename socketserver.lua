@@ -34,7 +34,7 @@ for k,i in pairs(KEY_INDEX) do
 end
 
 --------------------------------------------------------------------------
---  UTILITY: READ PLAYER POS ------------------------------------------------
+--  UTILITY: READ PLAYER POS ----------------------------------------------
 --------------------------------------------------------------------------
 local function getPlayerPos()
    -- read the two one-byte tile-coord addresses
@@ -45,7 +45,7 @@ local function getPlayerPos()
 end
 
 --------------------------------------------------------------------------
---  UTILITY: CHECK INTERFACE STATES -----------------------------------------
+--  UTILITY: CHECK INTERFACE STATES ---------------------------------------
 -- menu: CC51–CC52, battle: CCD5, conversation: CC00
 --------------------------------------------------------------------------
 local function isInMenu()
@@ -56,21 +56,25 @@ local function isInMenu()
 end
 
 local function isInBattle()
-   local t = emu:readRange(0xCCD5, 1)
-   return t and string.byte(t,1) > 0
+   -- D057: non-zero whenever the battle engine is active
+   local flag = emu:readRange(0xD057, 1)
+   return flag and string.byte(flag, 1) ~= 0
 end
 
+-- CC50 == 0x5F  → text engine is running
+-- CC54 != 0x30  → the actual textbox is on screen
 local function isInConversation()
-   -- during dialogue the byte at CC00 is 0x11 (else it’s 0x00)
-   local b = emu:readRange(0xCC00, 1)
-   return b and string.byte(b,1) == 0x11
+   local ptr = emu:readRange(0xCC50, 1)
+   local flg = emu:readRange(0xCC54, 1)
+   if not ptr or not flg then return false end
+   return string.byte(ptr,1) == 0x5F and string.byte(flg,1) ~= 0x30
 end
 
 local function getState()
-   if     isInMenu()         then return "menu"
-   elseif isInBattle()       then return "battle"
+   if     isInBattle()       then return "battle"
+   elseif isInMenu()         then return "menu"
    elseif isInConversation() then return "conversation"
-   else                            return "roam"
+   else                      return "roam"
    end
 end
 
@@ -88,7 +92,7 @@ local function stop(id)    if clients[id] then clients[id]:close(); clients[id]=
 local inputQueue = nil
 
 --------------------------------------------------------------------------
---  4-FRAME AUTO-RELEASE + QUEUE PROCESSING --------------------------------
+--  4-FRAME AUTO-RELEASE + QUEUE PROCESSING -------------------------------
 --------------------------------------------------------------------------
 local hold = {}
 local function stepAutoRelease()
@@ -113,15 +117,8 @@ local function stepAutoRelease()
       if inputQueue.framesUntilNext <= 0 then
          local i = inputQueue.idx
 
-         -- abort if not roaming
-         if getState() ~= "roam" then
-            inputQueue.sock:send("QUEUE_DISABLED_INTERFACE_OPEN\n")
-            inputQueue = nil
-            return
-         end
-
-         -- movement verification
-         if i > 1 then
+         -- movement verification (only in roam state)
+         if getState() == "roam" and i > 1 then
             local x,y = getPlayerPos()
             if x == inputQueue.prevX and y == inputQueue.prevY then
                inputQueue.sock:send("NO_MOVEMENT_DETECTED\n")
@@ -205,19 +202,14 @@ local function parse(line, sock)
          if tok ~= "" then toks[#toks+1] = canonical(tok) end
       end
       if #toks > 1 then
-         if getState() ~= "roam" then
-            inputQueue = nil
-            sock:send("QUEUE_DISABLED_INTERFACE_OPEN\n")
-            return
-         end
          local px, py = getPlayerPos()
          inputQueue = {
-           tokens          = toks,
-           idx             = 1,
-           framesUntilNext = 0,
-           sock            = sock,
-           prevX           = px,
-           prevY           = py,
+            tokens          = toks,
+            idx             = 1,
+            framesUntilNext = 0,
+            sock            = sock,
+            prevX           = px,
+            prevY           = py,
          }
          return
       else
