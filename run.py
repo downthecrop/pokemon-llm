@@ -174,20 +174,23 @@ def get_badges_text(sock) -> str:
 
 
 def get_facing(sock) -> str:
-    # Event displacement bytes also encode facing
-    raw_dx = readrange(sock, "0xD35F", "1")[0]
-    raw_dy = readrange(sock, "0xD360", "1")[0]
-    dx = raw_dx if raw_dx < 128 else raw_dx - 256
-    dy = raw_dy if raw_dy < 128 else raw_dy - 256
-    if dx < 0:
-        return "left"
-    if dx > 0:
-        return "right"
-    if dy < 0:
-        return "up"
-    if dy > 0:
+    """
+    Read the player's facing direction from WRAM sprite data.
+    Address 0xC109 holds sprite 0's facing:
+      0x0=down, 0x4=up, 0x8=left, 0xC=right.
+    """
+    raw = readrange(sock, "0xC109", "1")[0]
+    code = raw & 0xC
+    if code == 0x0:
         return "down"
-    return "stationary"
+    elif code == 0x4:
+        return "up"
+    elif code == 0x8:
+        return "left"
+    elif code == 0xC:
+        return "right"
+    else:
+        return f"unknown(0x{raw:02X})"
 
 
 def get_location(sock) -> tuple[int,int,int,str] | None:
