@@ -17,4 +17,4 @@ python run.py --windowed --auto
 
 > Configure mGBA not to use GB Player features.
 
-![Alt1](images/normal_mart.png)
+![Alt1](images/no_gbp.png)
