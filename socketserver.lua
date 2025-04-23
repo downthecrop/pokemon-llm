@@ -6,27 +6,73 @@
 -- Copy to …/mGBA.app/Contents/Resources/scripts/   Run with:
 --     mGBA --script socketserver.lua <rom>
 
----------------------------------------------------------------------------
+--------------------------------------------------------------------------
 --  CONFIG -----------------------------------------------------------------
----------------------------------------------------------------------------
-local LISTEN_PORT  = 8888   -- TCP port for Python client
-local HOLD_FRAMES  = 4      -- frames to keep any pressed key down
+--------------------------------------------------------------------------
+local LISTEN_PORT   = 8888   -- TCP port for Python client
+local HOLD_FRAMES   = 4      -- frames to keep any pressed key down
 local QUEUE_SPACING = 30     -- frames between queued inputs
----------------------------------------------------------------------------
 
+--------------------------------------------------------------------------
+--  mGBA GLOBALS -----------------------------------------------------------
+--------------------------------------------------------------------------
 local socket, console, emu = socket, console, emu   -- mGBA globals
 local string_pack = string.pack                     -- Lua ≥5.3
 
 --------------------------------------------------------------------------
 --  KEY MAP & ALIASES ------------------------------------------------------
 --------------------------------------------------------------------------
-local KEY_INDEX = { A=0,B=1,SELECT=2,START=3,RIGHT=4,LEFT=5,UP=6,DOWN=7,R=8,L=9 }
+local KEY_INDEX = { A=0, B=1, SELECT=2, START=3, RIGHT=4, LEFT=5, UP=6, DOWN=7, R=8, L=9 }
 local KEY_ALIAS = {
-   U="UP",u="UP",  D="DOWN",d="DOWN",  L="LEFT",l="LEFT",  R="RIGHT",r="RIGHT",
-   LT="L",lt="L",  RT="R",rt="R",       S="START",  s="SELECT",
+   U="UP", u="UP",  D="DOWN", d="DOWN",  L="LEFT", l="LEFT",
+   R="RIGHT", r="RIGHT", LT="L", lt="L", RT="R", rt="R",
+   S="START", s="SELECT",
 }
 local KEY_MASK = {}
-for k,i in pairs(KEY_INDEX) do KEY_MASK[k] = 1<<i end
+for k,i in pairs(KEY_INDEX) do
+   KEY_MASK[k] = 1 << i
+end
+
+--------------------------------------------------------------------------
+--  UTILITY: READ PLAYER POS ------------------------------------------------
+--------------------------------------------------------------------------
+local function getPlayerPos()
+   -- read the two one-byte tile-coord addresses
+   local bx = emu:readRange(0xD362, 1)
+   local by = emu:readRange(0xD361, 1)
+   if not bx or not by then return nil, nil end
+   return string.byte(bx, 1), string.byte(by, 1)
+end
+
+--------------------------------------------------------------------------
+--  UTILITY: CHECK INTERFACE STATES -----------------------------------------
+-- menu: CC51–CC52, battle: CCD5, conversation: CC00
+--------------------------------------------------------------------------
+local function isInMenu()
+   local b = emu:readRange(0xCC51, 2)
+   if not b then return false end
+   local hi, lo = string.byte(b,1), string.byte(b,2)
+   return (hi ~= 0 or lo ~= 0)
+end
+
+local function isInBattle()
+   local t = emu:readRange(0xCCD5, 1)
+   return t and string.byte(t,1) > 0
+end
+
+local function isInConversation()
+   -- during dialogue the byte at CC00 is 0x11 (else it’s 0x00)
+   local b = emu:readRange(0xCC00, 1)
+   return b and string.byte(b,1) == 0x11
+end
+
+local function getState()
+   if     isInMenu()         then return "menu"
+   elseif isInBattle()       then return "battle"
+   elseif isInConversation() then return "conversation"
+   else                            return "roam"
+   end
+end
 
 --------------------------------------------------------------------------
 --  SOCKET HOUSEKEEPING ----------------------------------------------------
@@ -42,10 +88,11 @@ local function stop(id)    if clients[id] then clients[id]:close(); clients[id]=
 local inputQueue = nil
 
 --------------------------------------------------------------------------
---  4‑FRAME AUTO‑RELEASE + QUEUE PROCESSING --------------------------------
+--  4-FRAME AUTO-RELEASE + QUEUE PROCESSING --------------------------------
 --------------------------------------------------------------------------
 local hold = {}
 local function stepAutoRelease()
+   -- auto-release any held keys
    if next(hold) then
       local rel = 0
       for k,t in pairs(hold) do
@@ -60,14 +107,33 @@ local function stepAutoRelease()
       if rel ~= 0 then emu:clearKeys(rel) end
    end
 
+   -- process queued inputs
    if inputQueue then
       inputQueue.framesUntilNext = inputQueue.framesUntilNext - 1
       if inputQueue.framesUntilNext <= 0 then
          local i = inputQueue.idx
+
+         -- abort if not roaming
+         if getState() ~= "roam" then
+            inputQueue.sock:send("QUEUE_DISABLED_INTERFACE_OPEN\n")
+            inputQueue = nil
+            return
+         end
+
+         -- movement verification
+         if i > 1 then
+            local x,y = getPlayerPos()
+            if x == inputQueue.prevX and y == inputQueue.prevY then
+               inputQueue.sock:send("NO_MOVEMENT_DETECTED\n")
+               inputQueue = nil
+               return
+            end
+         end
+
          if i <= #inputQueue.tokens then
+            inputQueue.prevX, inputQueue.prevY = getPlayerPos()
             local key = inputQueue.tokens[i]
-            local mask = KEY_MASK[key]
-            emu:addKeys(mask)
+            emu:addKeys(KEY_MASK[key])
             hold[key] = HOLD_FRAMES
             inputQueue.idx = i + 1
             inputQueue.framesUntilNext = QUEUE_SPACING
@@ -109,9 +175,7 @@ local function sendReadRange(sock, addr_str, len_str)
       return
    end
    local data = emu:readRange(addr, length)
-   if not data then sock:send("ERR read failed\n")
-      return
-   end
+   if not data then sock:send("ERR read failed\n"); return end
    sock:send(string_pack(">I4", #data))
    sock:send(data)
 end
@@ -126,6 +190,14 @@ end
 local function parse(line, sock)
    line = line:match("^(.-)%s*$")
    if line == "" then return end
+
+   -- report current state
+   if line:upper() == "STATE" then
+      sock:send(getState() .. "\n")
+      return
+   end
+
+   -- queued-input syntax: tok1;tok2;...;
    if line:find(";") then
       local toks = {}
       for tok in line:gmatch("([^;]+)") do
@@ -133,28 +205,55 @@ local function parse(line, sock)
          if tok ~= "" then toks[#toks+1] = canonical(tok) end
       end
       if #toks > 1 then
-         inputQueue = { tokens = toks, idx = 1, framesUntilNext = 0, sock = sock }
+         if getState() ~= "roam" then
+            inputQueue = nil
+            sock:send("QUEUE_DISABLED_INTERFACE_OPEN\n")
+            return
+         end
+         local px, py = getPlayerPos()
+         inputQueue = {
+           tokens          = toks,
+           idx             = 1,
+           framesUntilNext = 0,
+           sock            = sock,
+           prevX           = px,
+           prevY           = py,
+         }
          return
       else
          line = toks[1]
       end
    end
+
+   -- single commands
    local a,l = line:match("^READRANGE%s+(%S+)%s+(%S+)$")
    if a and l then sendReadRange(sock, a, l); return end
    if line:upper() == "CAP" then sendCapture(sock); return end
+
    local num = line:match("^SET%s+(%S+)$")
    if num then
       local m = tonumber(num) or tonumber(num,16)
       if not m then return nil, "Bad number "..num end
-      emu:setKeys(m); hold = {}; return
+      emu:setKeys(m)
+      hold = {}
+      return
    end
+
+   -- individual key presses/releases
    local add, clr = 0, 0
    for tok in line:gmatch("%S+") do
-      local op, name = tok:match("^([%+%-]?)(.+)$")
+      local op,name = tok:match("^([%+%-]?)(.+)$")
       name = canonical(name)
-      if not KEY_MASK[name] then return nil, "Unknown key "..tok end
-      if op == "-" then clr = clr | KEY_MASK[name]; hold[name] = nil
-      else add = add | KEY_MASK[name]; hold[name] = HOLD_FRAMES end
+      if not KEY_MASK[name] then
+         return nil, "Unknown key "..tok
+      end
+      if op == "-" then
+         clr = clr | KEY_MASK[name]
+         hold[name] = nil
+      else
+         add = add | KEY_MASK[name]
+         hold[name] = HOLD_FRAMES
+      end
    end
    if add ~= 0 then emu:addKeys(add) end
    if clr ~= 0 then emu:clearKeys(clr) end
@@ -177,19 +276,20 @@ local function onRecv(id)
 end
 
 local function onError(id, e)
-   err(id, e); stop(id)
+   err(id, e)
+   stop(id)
 end
 
 --------------------------------------------------------------------------
 --  ACCEPT NEW CLIENTS -----------------------------------------------------
 --------------------------------------------------------------------------
 local function onAccept()
-   local s, e = server:accept()
+   local s,e = server:accept()
    if e then err("accept", e); return end
    local id = nextID; nextID = id + 1
    clients[id] = s
    s:add("received", function() onRecv(id) end)
-   s:add("error",    function() onError(id, e) end)
+   s:add("error",    function() onError(id) end)
    log(id, "connected")
 end
 
@@ -204,7 +304,7 @@ local function listen(port)
             port = port + 1
          else err("bind", err); return end
       else
-         local ok, e = server:listen()
+         local ok,e = server:listen()
          if ok then break else err("listen", e); return end
       end
    end
