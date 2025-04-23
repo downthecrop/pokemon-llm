@@ -34,7 +34,7 @@ for k,i in pairs(KEY_INDEX) do
 end
 
 --------------------------------------------------------------------------
---  UTILITY: READ PLAYER POS ----------------------------------------------
+--  UTILITY: READ PLAYER POS (GEN1) --------------------------------------
 --------------------------------------------------------------------------
 local function getPlayerPos()
    -- read the two one-byte tile-coord addresses
@@ -45,7 +45,7 @@ local function getPlayerPos()
 end
 
 --------------------------------------------------------------------------
---  UTILITY: CHECK INTERFACE STATES ---------------------------------------
+--  UTILITY: CHECK INTERFACE STATES (GEN1) -------------------------------
 -- menu: CC51–CC52, battle: CCD5, conversation: CC00
 --------------------------------------------------------------------------
 local function isInMenu()
@@ -63,7 +63,7 @@ end
 
 -- CC50 == 0x5F  → text engine is running
 -- CC54 != 0x30  → the actual textbox is on screen
-local function isInConversation()
+local function isInDialogue()
    local ptr = emu:readRange(0xCC50, 1)
    local flg = emu:readRange(0xCC54, 1)
    if not ptr or not flg then return false end
@@ -73,7 +73,7 @@ end
 local function getState()
    if     isInBattle()       then return "battle"
    elseif isInMenu()         then return "menu"
-   elseif isInConversation() then return "conversation"
+   elseif isInDialogue() then return "dialogue"
    else                      return "roam"
    end
 end
@@ -249,6 +249,9 @@ local function parse(line, sock)
    end
    if add ~= 0 then emu:addKeys(add) end
    if clr ~= 0 then emu:clearKeys(clr) end
+
+   -- nothing matched: report unknown command
+   sock:send("ERR unknown command\n")
 end
 
 --------------------------------------------------------------------------
@@ -262,8 +265,16 @@ local function onRecv(id)
          if err_msg ~= socket.ERRORS.AGAIN then err(id, err_msg); stop(id) end
          return
       end
-      local _, perr = parse(line, s)
-      if perr then err(id, perr) end
+
+      -- protect parse() from any runtime error
+      local ok, perr = pcall(parse, line, s)
+      if not ok then
+         err(id, "parse exception: "..tostring(perr))
+         s:send("ERR parse exception\n")
+      elseif perr then
+         err(id, perr)
+         s:send("ERR "..perr.."\n")
+      end
    end
 end
 

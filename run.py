@@ -241,7 +241,7 @@ def interactive_console(sock):
                     else:
                         _, addr, length = parts
                         try:
-                            readrange(sock, addr, length)
+                            readrange(sock, addr, length, "dump.bin")
                         except Exception as e:
                             print(f"[READRANGE error] {e}")
                     continue
