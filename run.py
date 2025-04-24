@@ -73,8 +73,8 @@ def cmd_prep(sock):
     if not data:
         print("No map data available.")
         return None
-    print(f"State: {data['state']}")
     print(data['party'])
+    print(f"State: {data['state']}")
     print(data['badges'])
     x, y = data['position']
     print(f"Position: {x}, {y}")
