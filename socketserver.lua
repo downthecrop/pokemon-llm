@@ -185,6 +185,7 @@ local function canonical(tok)
 end
 
 local function parse(line, sock)
+   console:log("parse: "..line)
    line = line:match("^(.-)%s*$")
    if line == "" then return end
 
@@ -251,7 +252,7 @@ local function parse(line, sock)
    if clr ~= 0 then emu:clearKeys(clr) end
 
    -- nothing matched: report unknown command
-   sock:send("ERR unknown command\n")
+   --sock:send("ERR unknown command " ..line.."\n")
 end
 
 --------------------------------------------------------------------------

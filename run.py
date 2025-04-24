@@ -19,6 +19,8 @@ from helpers import (
     DEFAULT_ROM
 )
 
+from openaidriver import run_auto_loop  # new import
+
 PORT = 8888
 MGBA_EXE = '/Applications/mGBA.app/Contents/MacOS/mGBA'
 LUA_SCRIPT = './socketserver.lua'
@@ -70,15 +72,19 @@ def cmd_capture(sock, filename=None):
 
 def cmd_prep(sock):
     data = prep_llm(sock)
-    if not data:
-        print("No map data available.")
-        return None
-    print(data['party'])
+
+    print(data["party"])
     print(f"State: {data['state']}")
-    print(data['badges'])
-    x, y = data['position']
-    print(f"Position: {x}, {y}")
-    print(f"Facing: {data['facing']}")
+    print(data["badges"])
+
+    if data["position"] is None:
+        print("Position: N/A")
+        print("Facing: N/A")
+    else:
+        x, y = data["position"]
+        print(f"Position: {x}, {y}")
+        print(f"Facing: {data['facing']}")
+
     return data
 
 
@@ -176,11 +182,14 @@ def interactive_console(sock):
         print("\nInterrupted. Exiting console.")
 
 
-def main():
+def main(auto):
     proc = sock = None
     try:
         proc, sock = start_mgba_with_scripting()
-        interactive_console(sock)
+        if auto:
+            run_auto_loop(sock, interval=5.0)
+        else:
+            interactive_console(sock)
     finally:
         if sock:
             try: sock.close()
@@ -192,4 +201,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    auto = '--auto' in sys.argv
+    main(auto)

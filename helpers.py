@@ -2,7 +2,7 @@
 import struct
 import pathlib
 import os
-from PIL import Image
+from PIL import Image, ImageDraw
 from dump import find_path, dump_minimal_map
 
 DEFAULT_ROM = 'c.gbc'
@@ -22,28 +22,63 @@ SIZE_MAP = {
 }
 
 
-def capture(sock, filename: str = "latest.png") -> None:
+def _flush_socket(sock) -> None:
+    """
+    Drain any pending data from sock so that our next recv()
+    only sees the fresh response to the command we send.
+    """
+    # Switch to non-blocking so recv() returns immediately if no data
+    sock.setblocking(False)
+    try:
+        while True:
+            data = sock.recv(4096)
+            if not data:
+                break
+    except (BlockingIOError, OSError):
+        # No more data to read
+        pass
+    finally:
+        # Go back to blocking mode
+        sock.setblocking(True)
+
+
+def capture(sock, filename: str = "latest.png", cell_size: int = 16) -> None:
+    # flush any leftover bytes
+    _flush_socket(sock)
+
     sock.sendall(b"CAP\n")
     hdr = sock.recv(4)
     if len(hdr) < 4:
         raise RuntimeError("socket closed during CAP header")
     length = struct.unpack(">I", hdr)[0]
+
     data = bytearray()
     while len(data) < length:
         chunk = sock.recv(length - len(data))
         if not chunk:
             raise RuntimeError("socket closed mid-image")
         data.extend(chunk)
+
     size = SIZE_MAP.get(length)
     if size is None:
         raise RuntimeError(f"unexpected raster size {length} bytes")
-    path = pathlib.Path(filename)
-    try:
-        img = Image.frombytes("RGBA", size, bytes(data), "raw", "ARGB")
-        img.save(path)
-    except ModuleNotFoundError:
-        path.write_bytes(data)
 
+    # build image from raw data
+    img = Image.frombytes("RGBA", size, bytes(data), "raw", "ARGB")
+
+    # draw the 16×16 grid
+    draw = ImageDraw.Draw(img)
+    w, h = img.size
+    grid_color = (255, 0, 0, 128)  # semi-transparent red
+
+    for x in range(0, w + 1, cell_size):
+        draw.line(((x, 0), (x, h)), fill=grid_color)
+    for y in range(0, h + 1, cell_size):
+        draw.line(((0, y), (w, y)), fill=grid_color)
+
+    # save
+    path = pathlib.Path(filename)
+    img.save(path)
 
 def readrange(sock, address: str, length: str) -> bytes:
     cmd = f"READRANGE {address} {length}\n".encode('utf-8')
@@ -165,21 +200,31 @@ def get_location(sock) -> tuple[int, int, int, str] | None:
     return (mid, tile_x, tile_y, facing)
 
 
-def prep_llm(sock) -> dict | None:
-    loc = get_location(sock)
-    if loc is None:
-        return None
-    mid, tile_x, tile_y, facing = loc
-    img = dump_minimal_map(DEFAULT_ROM, mid, (tile_x, tile_y))
-    img.save("minimap.png")
+def prep_llm(sock) -> dict:
     capture(sock, "latest.png")
+    print("Finished capturing latest.png")
+    state = get_state(sock)
+    print(f"State: {state}")
+    loc = None if state == "battle" else get_location(sock)
+
+    if loc:
+        mid, x, y, facing = loc
+        dump_minimal_map(DEFAULT_ROM, mid, (x, y)).save("minimap.png")
+        position = (x, y)
+    else:
+        # no map data or in battle → empty map
+        open("minimap.png", "wb").close()
+        position = None
+        facing = None
+
     return {
-        "party": get_party_text(sock),
-        "state": get_state(sock),
-        "badges": get_badges_text(sock),
-        "position": (tile_x, tile_y),
-        "facing": facing,
+        "party":   get_party_text(sock),
+        "state":   state,
+        "badges":  get_badges_text(sock),
+        "position": position,
+        "facing":  facing,
     }
+
 
 
 def print_battle(sock) -> None:
