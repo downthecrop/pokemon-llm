@@ -130,43 +130,81 @@ def find_path(rom_path, map_id, start, end):
     return ''.join(a + ';' for a in actions)
 
 
-def dump_minimal_map(rom_path, map_id, pos=None, debug=False):
+def dump_minimal_map(rom_path, map_id, pos=None, grid=False, debug=False):
     rom = open(rom_path, 'rb').read()
     tileset_id, width, height, map_data = load_map(rom, map_id)
     bank, blocks_ptr, tiles_ptr, collision_ptr = load_tileset_header(rom, tileset_id)
+
     # load collision
     col_off = gb_to_file_offset(collision_ptr, bank)
     collision = []
     idx = col_off
     while idx < len(rom):
         v = rom[idx]; idx += 1
-        if v == 0xFF: break
+        if v == 0xFF:
+            break
         collision.append(v)
     walkable_tiles = set(collision)
+
     # load blocks
     blk_off = gb_to_file_offset(blocks_ptr, bank)
     block_count = max(map_data) + 1
-    blocks = [rom[blk_off+i*16:blk_off+i*16+16].ljust(16, b'\x00') for i in range(block_count)]
-    grid = build_quadrant_walkability(width, height, map_data, blocks, walkable_tiles)
+    blocks = [
+        rom[blk_off + i*16 : blk_off + i*16 + 16].ljust(16, b'\x00')
+        for i in range(block_count)
+    ]
+
+    # build walkability grid
+    grid_data = build_quadrant_walkability(width, height, map_data, blocks, walkable_tiles)
+
     # minimal image
     img_w, img_h = width*2*16, height*2*16
     img = Image.new('RGB', (img_w, img_h))
     draw = ImageDraw.Draw(img)
-    for y in range(len(grid)):
-        for x in range(len(grid[0])):
-            draw.rectangle([x*16, y*16, x*16+16, y*16+16], fill=(255,255,255) if grid[y][x] else (0,0,0))
+
+    # draw walkability (white=walkable, black=blocked)
+    for y in range(len(grid_data)):
+        for x in range(len(grid_data[0])):
+            color = (255, 255, 255) if grid_data[y][x] else (0, 0, 0)
+            draw.rectangle(
+                [x*16, y*16, x*16+16, y*16+16],
+                fill=color
+            )
+
+    # draw player position marker
     if pos:
         px, py = pos
-        cx, cy = px*16+8, py*16+8
-        draw.ellipse([(cx-6, cy-6), (cx+6, cy+6)], fill=(0,0,255), outline=(0,0,255))
+        cx, cy = px*16 + 8, py*16 + 8
+        draw.ellipse(
+            [(cx-6, cy-6), (cx+6, cy+6)],
+            fill=(0, 0, 255),
+            outline=(0, 0, 255)
+        )
+
+    # overlay grid lines if asked (grid-only or debug)
+    if grid or debug:
+        line_color = (0, 0, 0, 64)
+        # verticals
+        for x in range(0, img_w+1, 16):
+            draw.line([(x, 0), (x, img_h)], fill=line_color)
+        # horizontals
+        for y in range(0, img_h+1, 16):
+            draw.line([(0, y), (img_w, y)], fill=line_color)
+
+    # overlay debug text (cell coords) if debug
     if debug:
         font = ImageFont.load_default()
-        for x in range(0, img_w+1, 16): draw.line([(x,0),(x,img_h)], fill=(0,0,0,64))
-        for y in range(0, img_h+1, 16): draw.line([(0,y),(img_w,y)], fill=(0,0,0,64))
-        for gy in range(img_h//16):
-            for gx in range(img_w//16):
-                draw.text((gx*16+1, gy*16+1), f"{gx},{gy}", font=font, fill=(0,0,255))
+        for gy in range(img_h // 16):
+            for gx in range(img_w // 16):
+                draw.text(
+                    (gx*16 + 1, gy*16 + 1),
+                    f"{gx},{gy}",
+                    font=font,
+                    fill=(0, 0, 255)
+                )
+
     return img
+
 
 # --- CLI wrapper ---
 def main():

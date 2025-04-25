@@ -209,7 +209,7 @@ def prep_llm(sock) -> dict:
 
     if loc:
         mid, x, y, facing = loc
-        dump_minimal_map(DEFAULT_ROM, mid, (x, y)).save("minimap.png")
+        dump_minimal_map(DEFAULT_ROM, mid, (x, y), grid=True).save("minimap.png")
         position = (x, y)
     else:
         # no map data or in battle → empty map
