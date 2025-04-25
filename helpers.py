@@ -81,6 +81,7 @@ def capture(sock, filename: str = "latest.png", cell_size: int = 16) -> None:
     img.save(path)
 
 def readrange(sock, address: str, length: str) -> bytes:
+    _flush_socket(sock)
     cmd = f"READRANGE {address} {length}\n".encode('utf-8')
     sock.sendall(cmd)
     hdr = sock.recv(4)
@@ -97,6 +98,7 @@ def readrange(sock, address: str, length: str) -> bytes:
 
 
 def send_command(sock, cmd: str) -> str:
+    _flush_socket(sock)
     sock.sendall((cmd.strip() + "\n").encode('utf-8'))
     data = bytearray()
     while True:
@@ -110,6 +112,7 @@ def send_command(sock, cmd: str) -> str:
 
 
 def get_state(sock) -> str:
+    _flush_socket(sock)
     return send_command(sock, "state")
 
 
@@ -124,6 +127,7 @@ def decode_pokemon_text(raw: bytes) -> str:
 
 
 def get_party_text(sock) -> str:
+    _flush_socket(sock)
     header = readrange(sock, "0xD163", "8")
     count = header[0]
     lines: list[str] = []
@@ -165,14 +169,16 @@ def get_party_text(sock) -> str:
 
 
 def get_badges_text(sock) -> str:
+    _flush_socket(sock)
     raw = readrange(sock, "0xD356", "1")
     flags = raw[0]
     names = ["Boulder","Cascade","Thunder","Rainbow","Soul","Marsh","Volcano","Earth"]
     have = [names[i] for i in range(8) if flags & (1 << i)]
-    return "Badges: " + (", ".join(have) if have else "none")
+    return (", ".join(have) if have else "none")
 
 
 def get_facing(sock) -> str:
+    _flush_socket(sock)
     raw = readrange(sock, "0xC109", "1")[0]
     code = raw & 0xC
     if code == 0x0:
@@ -188,6 +194,7 @@ def get_facing(sock) -> str:
 
 
 def get_location(sock) -> tuple[int, int, int, str] | None:
+    _flush_socket(sock)
     mid = readrange(sock, "0xD35E", "1")[0]
     tile_x = readrange(sock, "0xD362", "1")[0]
     tile_y = readrange(sock, "0xD361", "1")[0]
@@ -201,11 +208,10 @@ def get_location(sock) -> tuple[int, int, int, str] | None:
 
 
 def prep_llm(sock) -> dict:
+    _flush_socket(sock)
     capture(sock, "latest.png")
     print("Finished capturing latest.png")
-    state = get_state(sock)
-    print(f"State: {state}")
-    loc = None if state == "battle" else get_location(sock)
+    loc = get_location(sock)
 
     if loc:
         mid, x, y, facing = loc
@@ -219,7 +225,7 @@ def prep_llm(sock) -> dict:
 
     return {
         "party":   get_party_text(sock),
-        "state":   state,
+        #"state":   get_state(sock),
         "badges":  get_badges_text(sock),
         "position": position,
         "facing":  facing,
@@ -228,6 +234,7 @@ def prep_llm(sock) -> dict:
 
 
 def print_battle(sock) -> None:
+    _flush_socket(sock)
     cur = readrange(sock, hex(0xD057), "1")[0]
     if cur == 0:
         print("Not currently in a battle.")

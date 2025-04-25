@@ -19,7 +19,7 @@ from helpers import (
     DEFAULT_ROM
 )
 
-from openaidriver import run_auto_loop  # new import
+from llmdriver import run_auto_loop
 
 PORT = 8888
 MGBA_EXE = '/Applications/mGBA.app/Contents/MacOS/mGBA'
@@ -187,7 +187,7 @@ def main(auto):
     try:
         proc, sock = start_mgba_with_scripting()
         if auto:
-            run_auto_loop(sock, interval=5.0)
+            run_auto_loop(sock, interval=8.0)
         else:
             interactive_console(sock)
     finally:

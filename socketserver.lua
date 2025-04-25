@@ -117,16 +117,6 @@ local function stepAutoRelease()
       if inputQueue.framesUntilNext <= 0 then
          local i = inputQueue.idx
 
-         -- movement verification (only in roam state)
-         if getState() == "roam" and i > 1 then
-            local x,y = getPlayerPos()
-            if x == inputQueue.prevX and y == inputQueue.prevY then
-               inputQueue.sock:send("NO_MOVEMENT_DETECTED\n")
-               inputQueue = nil
-               return
-            end
-         end
-
          if i <= #inputQueue.tokens then
             inputQueue.prevX, inputQueue.prevY = getPlayerPos()
             local key = inputQueue.tokens[i]
