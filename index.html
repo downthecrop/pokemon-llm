@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="style.css">
 
     <style>
+        /* --- Existing Styles --- */
         .log {
             position: relative;
         }
@@ -30,14 +31,30 @@
             width: 100%;
         }
 
+        /* --- Style for ws-status positioning --- */
         .ws-status {
+            /* Existing styles */
             margin-left: 15px;
             font-size: 0.9em;
             padding: 2px 6px;
             border-radius: 4px;
             color: white;
-            vertical-align: middle;
+            vertical-align: middle; /* Keep this for vertical alignment relative to the text */
+
+            /* --- MODIFIED: ADDED float --- */
+            float: right; /* Float the element to the right */
+            /* --- END MODIFICATION --- */
         }
+
+        /* --- Added clearfix for the status container (good practice with floats) --- */
+        .status::after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+        /* --- END ADDITION --- */
+
+
         .ws-status.disconnected { background-color: #bdbdbd; }
         .ws-status.connecting { background-color: #ffb74d; }
         .ws-status.connected { background-color: #81c784; }
@@ -63,11 +80,62 @@
             opacity: 0.5;
             filter: grayscale(80%);
         }
+
+        /* --- Style for Coordinates --- */
+        .coordinate {
+            background-color: #e0f7fa; /* Light cyan background */
+            color: #006064;          /* Dark cyan text */
+            padding: 1px 3px;
+            border-radius: 3px;
+            font-weight: bold;
+            font-family: monospace; /* Good for displaying coordinates */
+            margin: 0 1px; /* Small spacing adjustment */
+        }
+        .log-entry {
+             white-space: pre-wrap; /* Preserve whitespace/newlines */
+             word-wrap: break-word; /* Break long words/lines */
+        }
+         /* Style for other log sections if needed */
+        .goals-log .log-entry {
+            margin-bottom: 0.5em; /* Example spacing */
+        }
+        .goals-log ul {
+            padding-left: 20px;
+            margin-top: 0.2em;
+        }
+        .goals-log h3 {
+             margin-bottom: 0.3em;
+        }
+
+        /* --- Added Style for Actions --- */
+        .action-type-ab {
+            color: #c62828; /* Red */
+            font-weight: bold;
+            background-color: #ffebee; /* Light Red background */
+            padding: 0px 2px; /* Adjusted padding slightly */
+            border-radius: 3px;
+            font-family: monospace;
+            margin: 0 1px; /* Small spacing */
+            display: inline-block; /* Ensures spacing works */
+        }
+
+        .action-type-direction {
+            color: #1565c0; /* Blue */
+            font-weight: bold;
+            background-color: #e3f2fd; /* Light Blue background */
+            padding: 0px 2px; /* Adjusted padding slightly */
+            border-radius: 3px;
+            font-family: monospace;
+            margin: 0 1px; /* Small spacing */
+            display: inline-block; /* Ensures spacing works */
+        }
+
     </style>
 </head>
 
 <body>
     <div id="app">
+        <!-- Header Section -->
         <div class="header">
              <div class="stats-widget">
                 <div class="actions-container">
@@ -90,37 +158,44 @@
             <div class="title">LLM PLAYS POKÉMON</div>
         </div>
 
+        <!-- Left Column (Log) -->
         <div class="left-col">
+            <!-- Status Bar -->
             <div class="status">
                 <span>Game Status: {{ gameStatus }}</span>
+                <!-- WebSocket Status (Now Floated Right) -->
                 <span v-if="websocketStatus" :class="['ws-status', websocketStatus.toLowerCase().replace('...','')]">
                     • {{ websocketStatus }}
                 </span>
             </div>
+            <!-- Action Log -->
             <div class="log" ref="actionLogContainer">
                 <transition-group name="log-item" tag="div">
                     <div class="log-entry" v-for="(entry) in displayedLogs" :key="entry.id">
-                        <strong>#{{ entry.id }}:</strong> {{ entry.text }}
+                        <strong>#{{ entry.id }}:</strong>
+                        <span v-html="formatLogText(entry.text)"></span>
                     </div>
                 </transition-group>
             </div>
         </div>
 
+        <!-- Middle Column (Goals) -->
         <div class="goals-log">
             <div class="log" ref="goalsLogContainer">
                  <h3>Primary Goal</h3>
-                 <p class="log-entry">{{ goals.primary }}</p>
+                 <p class="log-entry" v-html="formatLogText(goals.primary)"></p>
                  <h3>Secondary Goals</h3>
                  <ul>
-                     <li class="log-entry" v-for="(g,i) in goals.secondary" :key="'sec-'+i">{{ g }}</li>
+                     <li class="log-entry" v-for="(g,i) in goals.secondary" :key="'sec-'+i" v-html="formatLogText(g)"></li>
                  </ul>
                  <h3>Tertiary Goal</h3>
-                 <p class="log-entry">{{ goals.tertiary }}</p>
+                 <p class="log-entry" v-html="formatLogText(goals.tertiary)"></p>
                  <h3>Other Notes</h3>
-                 <p class="log-entry">{{ otherGoals }}</p>
+                 <p class="log-entry" v-html="formatLogText(otherGoals)"></p>
             </div>
         </div>
 
+        <!-- Right Column (Game Feed & Team) -->
         <div class="feed-wrapper">
              <div class="game-feed">
                 <div class="game-placeholder">Game Feed Placeholder</div>
@@ -156,6 +231,7 @@
     </div>
 
     <script>
+        // --- Keep the existing Vue script block exactly the same ---
         const MAX_LOG_ENTRIES = 30;
         const WEBSOCKET_URL = 'ws://localhost:8765';
         const RECONNECT_INTERVAL = 5000;
@@ -211,10 +287,10 @@
                                 this.scrollToBottom(this.$refs.actionLogContainer);
                             } else { console.warn(`Received 'logs' key but the value was not an array:`, message.logs); }
                         } else if (this.$data.hasOwnProperty(key)) {
-                            if (this[key] === null || typeof this[key] === typeof message[key]) {
+                            if (this[key] === null || typeof this[key] === typeof message[key] || (Array.isArray(this[key]) && Array.isArray(message[key])) || (typeof this[key] === 'object' && typeof message[key] === 'object' && !Array.isArray(this[key]) && !Array.isArray(message[key])) ) {
                                 this[key] = message[key];
                             } else {
-                                console.warn(`Type mismatch for key '${key}'. Expected ${typeof this[key]}, received ${typeof message[key]}. Update skipped.`);
+                                console.warn(`Type mismatch for key '${key}'. Local type: ${typeof this[key]} (${Array.isArray(this[key]) ? 'Array' : 'Object'}), Received type: ${typeof message[key]} (${Array.isArray(message[key]) ? 'Array' : 'Object'}). Update skipped.`);
                             }
                         }
                     }
@@ -226,6 +302,26 @@
                 },
                 scrollToBottom(container) {
                      if (container) { this.$nextTick(() => { container.scrollTop = container.scrollHeight; }); }
+                },
+                formatLogText(text) {
+                    if (typeof text !== 'string' || !text) { return text; }
+                    let formattedText = text;
+                    const coordRegex = /(\[\d+,\s*\d+\])/g;
+                    formattedText = formattedText.replace(coordRegex, (match) => {
+                        return `<span class="coordinate">${match}</span>`;
+                    });
+                    const actionSequenceRegex = /(Action:\s*)([ABUDLRS][\s;ABUDLRS]*?)(?=[^ABUDLRS\s;]|$)/g;
+                    formattedText = formattedText.replace(actionSequenceRegex, (fullMatch, prefix, sequence) => {
+                        let cleanedSequence = sequence.replace(/;/g, '').replace(/\s+/g, ' ').trim();
+                        let highlightedSequence = '';
+                        for (const actionChar of cleanedSequence) {
+                             if (actionChar === ' ') { highlightedSequence += ' '; }
+                             else if (/[AB]/.test(actionChar)) { highlightedSequence += `<span class="action-type-ab">${actionChar}</span>`; }
+                             else if (/[UDLRS]/.test(actionChar)) { highlightedSequence += `<span class="action-type-direction">${actionChar}</span>`; }
+                        }
+                        return prefix + highlightedSequence;
+                    });
+                    return formattedText;
                 }
             },
             mounted() {
