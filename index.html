@@ -7,11 +7,26 @@
     <title>LLM Plays Pokémon - VueJS UI</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Add some basic styling for the minimap image */
+        .minimap-body img {
+            max-width: 100%;
+            display: block;
+            margin: 5px auto; /* Center image and add some margin */
+            object-fit: contain; /* Ensure the image fits without distortion */
+        }
+        .minimap-hidden-message {
+             text-align: center;
+             color: #aaa;
+             font-style: italic;
+             padding: 20px 0;
+        }
+    </style>
 </head>
 
 <body>
     <div id="app">
-        <!-- Header Section -->
+        <!-- Header Section (No changes needed here) -->
         <div class="header">
              <div class="stats-widget">
                 <div class="actions-container">
@@ -34,17 +49,14 @@
             <div class="title">LLM PLAYS POKÉMON</div>
         </div>
 
-        <!-- Left Column (Log) -->
+        <!-- Left Column (Log) (No changes needed here) -->
         <div class="left-col">
-            <!-- Status Bar -->
             <div class="status">
                 <span>Game Status: {{ gameStatus }}</span>
-                <!-- WebSocket Status (Now Floated Right) -->
                 <span v-if="websocketStatus" :class="['ws-status', websocketStatus.toLowerCase().replace('...','')]">
                     • {{ websocketStatus }}
                 </span>
             </div>
-            <!-- Action Log -->
             <div class="log" ref="actionLogContainer">
                 <transition-group name="log-item" tag="div">
                     <div class="log-entry" v-for="(entry) in displayedLogs" :key="entry.id">
@@ -55,7 +67,7 @@
             </div>
         </div>
 
-        <!-- Middle Column (Goals) -->
+        <!-- Middle Column (Goals) (No changes needed here) -->
         <div class="goals-log">
             <div class="log" ref="goalsLogContainer">
                  <h3>Primary Goal</h3>
@@ -75,11 +87,24 @@
         <div class="feed-wrapper">
              <div class="game-feed">
                 <div class="game-placeholder">Game Feed Placeholder</div>
-                <div class="minimap-container">
+                <div class="minimap-container" v-show="minimapVisible">
                     <div class="minimap-header">{{ minimapLocation }}</div>
-                    <div class="minimap-body"></div>
+                    <!-- *** MODIFIED MINIMAP BODY *** -->
+                    <div class="minimap-body">
+                         <img
+                            :src="minimapSrc"
+                            alt="Minimap"
+                            @load="handleMinimapLoad"
+                            @error="handleMinimapError"
+                         >
+                         <div v-if="!minimapVisible" class="minimap-hidden-message">
+                             Minimap Unavailable
+                         </div>
+                    </div>
+                    <!-- *** END MODIFIED MINIMAP BODY *** -->
                 </div>
             </div>
+            <!-- Team Bar (No changes needed here) -->
             <div class="team-bar">
                 <div class="pokemon"
                      v-for="(p,i) in currentTeam"
@@ -107,30 +132,40 @@
     </div>
 
     <script>
-        // --- Keep the existing Vue script block exactly the same ---
+        // --- Keep the existing constants ---
         const MAX_LOG_ENTRIES = 3000;
         const WEBSOCKET_URL = 'ws://localhost:8765';
         const RECONNECT_INTERVAL = 5000;
+        const MINIMAP_POLL_INTERVAL = 1000; // Poll every 1 second
 
         Vue.createApp({
             data() {
                  return {
+                    // --- Existing Data ---
                     actions: 0, badges: [], gameStatus: 'Connecting...', logs: [],
                     goals: { primary: 'Loading...', secondary: [], tertiary: 'Loading...' },
                     otherGoals: 'Loading...', currentTeam: [], modelName: 'N/A', tokensUsed: 0,
                     ggValue: null, summaryValue: null, minimapLocation: 'Unknown Area',
                     typeColors: { Water: '#4fc3f7', Grass: '#81c784', Poison: '#ba68c8', Electric: '#ffd54f', Rock: '#a1887f', Ground: '#d7ccc8', Fighting: '#e57373', Normal: '#bdbdbd', Bug: '#cddc39', Ghost: '#9575cd', Steel: '#b0bec5', Fire: '#ff8a65', Psychic: '#f06292', Ice: '#80deea', Dragon: '#7e57c2', Dark: '#757575', Fairy: '#f48fb1', Flying: '#90a4ae' },
                     websocket: null, websocketUrl: WEBSOCKET_URL, websocketStatus: 'Disconnected',
-                    reconnectInterval: RECONNECT_INTERVAL, reconnectTimer: null
+                    reconnectInterval: RECONNECT_INTERVAL, reconnectTimer: null,
+
+                    // --- New Data for Minimap ---
+                    minimapSrc: '',          // Current source URL for the minimap image
+                    minimapVisible: false,   // Controls visibility based on load success/failure
+                    minimapTimer: null,      // Holds the interval timer ID
+                    minimapPollInterval: MINIMAP_POLL_INTERVAL // Configurable poll interval
                 };
             },
             computed: {
+                // --- Existing Computed Properties ---
                 displayedLogs() {
                     return this.logs;
                 }
             },
             methods: {
-                connectWebSocket() {
+                 // --- Existing Methods (connectWebSocket, processWebSocketMessage, scheduleReconnect, scrollToBottom, formatLogText) ---
+                connectWebSocket() { /* ... (Keep existing implementation) ... */
                     console.log(`Attempting to connect to ${this.websocketUrl}...`); this.websocketStatus = 'Connecting';
                     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
                     if (this.websocket && this.websocket.readyState !== WebSocket.CLOSED) { console.log("Closing existing WebSocket connection before reconnecting."); this.websocket.onclose = null; this.websocket.close(); }
@@ -144,7 +179,7 @@
                         else if (event.code === 1000) { this.websocketStatus = 'Disconnected'; } else { if(this.websocketStatus !== 'Reconnecting...') { this.websocketStatus = 'Disconnected'; } }
                     };
                 },
-                 processWebSocketMessage(message) {
+                 processWebSocketMessage(message) { /* ... (Keep existing implementation) ... */
                     for (const key in message) {
                         if (!message.hasOwnProperty(key)) { continue; }
                         if (key === 'log_entry') {
@@ -163,6 +198,11 @@
                                 this.scrollToBottom(this.$refs.actionLogContainer);
                             } else { console.warn(`Received 'logs' key but the value was not an array:`, message.logs); }
                         } else if (this.$data.hasOwnProperty(key)) {
+                            // Added check for minimap properties managed by polling
+                            if (key === 'minimapSrc' || key === 'minimapVisible') {
+                                // console.warn(`WebSocket tried to update '${key}', but it's managed by polling. Ignoring.`);
+                                continue; // Skip WebSocket updates for these specific properties
+                            }
                             if (this[key] === null || typeof this[key] === typeof message[key] || (Array.isArray(this[key]) && Array.isArray(message[key])) || (typeof this[key] === 'object' && typeof message[key] === 'object' && !Array.isArray(this[key]) && !Array.isArray(message[key])) ) {
                                 this[key] = message[key];
                             } else {
@@ -170,16 +210,16 @@
                             }
                         }
                     }
-                },
-                scheduleReconnect() {
+                 },
+                scheduleReconnect() { /* ... (Keep existing implementation) ... */
                     if (this.reconnectTimer) { return; } this.websocketStatus = 'Reconnecting...';
                     console.log(`Scheduling reconnect in ${this.reconnectInterval / 1000} seconds...`);
                     this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connectWebSocket(); }, this.reconnectInterval);
                 },
-                scrollToBottom(container) {
+                scrollToBottom(container) { /* ... (Keep existing implementation) ... */
                      if (container) { this.$nextTick(() => { container.scrollTop = container.scrollHeight; }); }
                 },
-                formatLogText(text) {
+                formatLogText(text) { /* ... (Keep existing implementation) ... */
                     if (typeof text !== 'string' || !text) { return text; }
                     let formattedText = text;
                     const coordRegex = /(\[\d+,\s*\d+\])/g;
@@ -198,16 +238,50 @@
                         return prefix + highlightedSequence;
                     });
                     return formattedText;
+                },
+
+                // --- New Methods for Minimap ---
+                updateMinimap() {
+                    // Force browser to re-fetch by adding a changing query parameter (cache buster)
+                    // console.log('Polling minimap...'); // Optional: for debugging
+                    this.minimapSrc = `minimap.png?t=${Date.now()}`;
+                    // Visibility is handled by the load/error events below
+                },
+                handleMinimapLoad() {
+                    // Image loaded successfully (non-zero bytes, valid image format)
+                    // console.log('Minimap loaded.'); // Optional: for debugging
+                    this.minimapVisible = true;
+                },
+                handleMinimapError(event) {
+                    // Image failed to load (could be 0 bytes, missing, network error, corrupted)
+                    // console.log('Minimap error - hiding.'); // Optional: for debugging
+                    this.minimapVisible = false;
+                    // Prevent broken image icon showing by setting src to empty / transparent pixel?
+                    // event.target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // Optional: Use a transparent pixel on error
                 }
             },
             mounted() {
-                console.log("Vue app mounted. Connecting WebSocket...");
+                console.log("Vue app mounted.");
+                // --- Existing WebSocket Connection ---
                 this.connectWebSocket();
+
+                // --- Start Minimap Polling ---
+                console.log(`Starting minimap polling every ${this.minimapPollInterval}ms.`);
+                this.updateMinimap(); // Initial attempt to load
+                this.minimapTimer = setInterval(this.updateMinimap, this.minimapPollInterval);
             },
             beforeUnmount() {
                 console.log("Vue app unmounting. Cleaning up WebSocket and timers.");
+                // --- Existing Cleanup ---
                 if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
                 if (this.websocket) { console.log('Closing WebSocket connection.'); this.websocket.onclose = null; this.websocket.close(1000, "Client component unmounting"); this.websocket = null; }
+
+                // --- Stop Minimap Polling ---
+                if (this.minimapTimer) {
+                    console.log("Stopping minimap polling.");
+                    clearInterval(this.minimapTimer);
+                    this.minimapTimer = null;
+                }
             }
         }).mount('#app');
     </script>

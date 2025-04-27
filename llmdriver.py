@@ -94,6 +94,8 @@ def build_system_prompt(actionSummary: str) -> str:
 
         Instructions:
 
+        If given the option to continue or start a new game, always choose to continue.
+
         1. Analyze the Game State:
         - Examine the screenshot provided in the game state.
         - Check the minimap (if available) to understand your position in the broader game world.
