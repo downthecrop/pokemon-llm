@@ -11,7 +11,8 @@
     --text-secondary: #b0b0b0;
     --text-tertiary: #888888;
     --accent-yellow: #ffd700;
-    --accent-green: #48bb78; /* Keep modern green */
+    --accent-green: #48bb78;
+    /* Keep modern green */
     --scrollbar-thumb: #555;
     --scrollbar-track: var(--bg-dark-tertiary);
 
@@ -49,8 +50,10 @@ body {
 .goals-log,
 .feed-wrapper {
     background: var(--bg-dark-secondary);
-    -ms-overflow-style: none;  /* Internet Explorer 10+ */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    /* Internet Explorer 10+ */
+    scrollbar-width: none;
+    /* Firefox */
     padding: 16px;
     border-radius: 10px;
     overflow: hidden;
@@ -73,9 +76,12 @@ body {
 }
 
 ::-webkit-scrollbar {
-    width: 0;  /* Remove scrollbar space */
-    background: transparent;  /* Optional: just make scrollbar invisible */
+    width: 0;
+    /* Remove scrollbar space */
+    background: transparent;
+    /* Optional: just make scrollbar invisible */
 }
+
 /* Optional: show position indicator in red */
 ::-webkit-scrollbar-thumb {
     background: #FF0000;
@@ -127,7 +133,10 @@ html {
     grid-column: 1 / 3;
     margin-top: 8px;
 }
-.stats-widget .subinfo span { line-height: 1.3; }
+
+.stats-widget .subinfo span {
+    line-height: 1.3;
+}
 
 
 .badges-widget {
@@ -158,6 +167,7 @@ html {
         inset 0 1px 2px rgba(0, 0, 0, 0.5),
         0 1px 1px rgba(255, 255, 255, 0.1);
 }
+
 .badge.empty {
     background: var(--bg-dark-secondary);
     border: 1.5px dashed var(--border-color);
@@ -177,9 +187,20 @@ html {
     text-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
 }
 
-.left-col { grid-column: 1; grid-row: 2; }
-.goals-log { grid-column: 2; grid-row: 2; }
-.feed-wrapper { grid-column: 3; grid-row: 2; }
+.left-col {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.goals-log {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+.feed-wrapper {
+    grid-column: 3;
+    grid-row: 2;
+}
 
 .status {
     flex-shrink: 0;
@@ -209,10 +230,24 @@ html {
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
-.log::-webkit-scrollbar { width: 8px; }
-.log::-webkit-scrollbar-track { background: var(--scrollbar-track); border-radius: 4px; }
-.log::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 4px; border: 2px solid var(--scrollbar-track); }
-.log::-webkit-scrollbar-thumb:hover { background-color: #777; }
+.log::-webkit-scrollbar {
+    width: 8px;
+}
+
+.log::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 4px;
+}
+
+.log::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 4px;
+    border: 2px solid var(--scrollbar-track);
+}
+
+.log::-webkit-scrollbar-thumb:hover {
+    background-color: #777;
+}
 
 .log-entry {
     background: var(--bg-dark-secondary);
@@ -226,22 +261,96 @@ html {
     border: 1px solid #2f2f2f;
 }
 
-.log-entry strong { color: var(--text-secondary); font-weight: 700; margin-right: 4px; }
+.log-entry strong {
+    color: var(--text-secondary);
+    font-weight: 700;
+    margin-right: 4px;
+}
 
 .goals-log .log h3 {
-    margin: 12px 0 8px 0; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
-    color: var(--text-secondary); letter-spacing: 0.5px; flex-shrink: 0;
-    padding-bottom: 4px; border-bottom: 1px solid var(--border-color);
+    margin: 12px 0 8px 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
 }
-.goals-log .log h3:first-of-type { margin-top: 0; }
-.goals-log .log ul { list-style: none; padding-left: 0; margin: 0 0 10px 0; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
-.goals-log .log ul li.log-entry, .goals-log .log p.log-entry { background: #252525; margin-bottom: 0 !important; }
 
-.game-feed { position: relative; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
-.game-placeholder { width: 100%; height: 100%; background: var(--bg-dark-tertiary); border-radius: 8px; flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 1.1rem; border: 1px dashed var(--border-color); }
-.minimap-container { position: absolute; top: 16px; right: 16px; width: 180px; border-radius: 8px; overflow: hidden; background: var(--bg-dark-tertiary); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg); z-index: 10; opacity: 0.95; }
-.minimap-header { background: #333; padding: 8px; font-size: 0.7rem; text-align: center; color: var(--accent-yellow); font-family: 'Press Start 2P', monospace; text-transform: uppercase; border-bottom: 1px solid var(--border-color); }
-.minimap-body { width: 100%; height: 100px; background: #4a4a4a; }
+.goals-log .log h3:first-of-type {
+    margin-top: 0;
+}
+
+.goals-log .log ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0 0 10px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.goals-log .log ul li.log-entry,
+.goals-log .log p.log-entry {
+    background: #252525;
+    margin-bottom: 0 !important;
+}
+
+.game-feed {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.game-placeholder {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-dark-tertiary);
+    border-radius: 8px;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    border: 1px dashed var(--border-color);
+}
+
+.minimap-container {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 180px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-dark-tertiary);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    z-index: 10;
+    opacity: 0.95;
+}
+
+.minimap-header {
+    background: #333;
+    padding: 8px;
+    font-size: 0.7rem;
+    text-align: center;
+    color: var(--accent-yellow);
+    font-family: 'Press Start 2P', monospace;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.minimap-body {
+    width: 100%;
+    height: 100px;
+    background: #4a4a4a;
+}
 
 /* Team Bar */
 .team-bar {
@@ -258,10 +367,24 @@ html {
     flex-shrink: 0;
 }
 
-.team-bar::-webkit-scrollbar { height: 8px; }
-.team-bar::-webkit-scrollbar-track { background: var(--bg-dark-secondary); border-radius: 4px; }
-.team-bar::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 4px; border: 2px solid var(--bg-dark-secondary); }
-.team-bar::-webkit-scrollbar-thumb:hover { background-color: #777; }
+.team-bar::-webkit-scrollbar {
+    height: 8px;
+}
+
+.team-bar::-webkit-scrollbar-track {
+    background: var(--bg-dark-secondary);
+    border-radius: 4px;
+}
+
+.team-bar::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 4px;
+    border: 2px solid var(--bg-dark-secondary);
+}
+
+.team-bar::-webkit-scrollbar-thumb:hover {
+    background-color: #777;
+}
 
 /* Pokémon Cards */
 .pokemon {
@@ -269,7 +392,8 @@ html {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 8px 10px; /* Reduced top/bottom padding slightly */
+    padding: 8px 10px;
+    /* Reduced top/bottom padding slightly */
     border-radius: 8px;
     text-align: center;
     color: var(--text-primary);
@@ -288,25 +412,33 @@ html {
 }
 
 /* Styles for Name, Level, Type */
-.pokemon-name, .pokemon-level, .pokemon-type {
-    line-height: 1.2; /* Tighter line height */
+.pokemon-name,
+.pokemon-level,
+.pokemon-type {
+    line-height: 1.2;
+    /* Tighter line height */
     color: #fff;
     z-index: 1;
     position: relative;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); /* Consistent shadow */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    /* Consistent shadow */
     word-wrap: break-word;
 }
 
 .pokemon-name {
     font-weight: 700;
     font-size: 0.9rem;
-    margin-bottom: 1px; /* Space between name and level */
+    margin-bottom: 1px;
+    /* Space between name and level */
 }
 
 .pokemon-level {
-    font-size: 0.75rem; /* Same size as type */
-    color: rgba(255, 255, 255, 0.85); /* Slightly less prominent than name/type */
-    margin-bottom: 2px; /* Space between level and type */
+    font-size: 0.75rem;
+    /* Same size as type */
+    color: rgba(255, 255, 255, 0.85);
+    /* Slightly less prominent than name/type */
+    margin-bottom: 2px;
+    /* Space between level and type */
 }
 
 .pokemon-type {
@@ -322,11 +454,12 @@ html {
     height: 8px;
     background: rgba(0, 0, 0, 0.3);
     border-radius: 4px;
-    margin: 6px 0 4px; /* Keep margin for spacing */
+    margin: 6px 0 4px;
+    /* Keep margin for spacing */
     overflow: hidden;
     z-index: 1;
     position: relative;
-    border: 1px solid rgba(0,0,0,0.2);
+    border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 .hp-fill {
@@ -334,7 +467,7 @@ html {
     background: var(--accent-green);
     border-radius: 4px;
     transition: width 0.4s ease-in-out;
-    box-shadow: inset 0 1px 1px rgba(255,255,255,0.1);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
 }
 
 .hp-text {
@@ -344,5 +477,171 @@ html {
     position: relative;
     font-weight: 600;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-    line-height: 1; /* Ensure it doesn't take too much vertical space */
+    line-height: 1;
+    /* Ensure it doesn't take too much vertical space */
+}
+
+/* --- Existing Styles --- */
+.log {
+    position: relative;
+}
+
+.log-item-move,
+.log-item-enter-active,
+.log-item-leave-active {
+    transition: all 0.5s ease;
+}
+
+.log-item-enter-from {
+    opacity: 0;
+    transform: translateY(15px);
+}
+
+.log-item-leave-to {
+    opacity: 0;
+    transform: translateX(-30px);
+}
+
+.log-item-leave-active {
+    position: absolute;
+    width: 100%;
+}
+
+/* --- Style for ws-status positioning --- */
+.ws-status {
+    /* Existing styles */
+    margin-left: 15px;
+    font-size: 0.9em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: white;
+    vertical-align: middle;
+    /* Keep this for vertical alignment relative to the text */
+
+    /* --- MODIFIED: ADDED float --- */
+    float: right;
+    /* Float the element to the right */
+    /* --- END MODIFICATION --- */
+}
+
+/* --- Added clearfix for the status container (good practice with floats) --- */
+.status::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+/* --- END ADDITION --- */
+
+
+.ws-status.disconnected {
+    background-color: #bdbdbd;
+}
+
+.ws-status.connecting {
+    background-color: #ffb74d;
+}
+
+.ws-status.connected {
+    background-color: #81c784;
+}
+
+.ws-status.error {
+    background-color: #e57373;
+}
+
+.ws-status.reconnecting {
+    background-color: #64b5f6;
+}
+
+.pokemon.empty-slot {
+    background: #e0e0e0;
+    border: 2px dashed #bdbdbd;
+    color: #9e9e9e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8em;
+    font-weight: bold;
+    min-height: 80px;
+}
+
+.pokemon {
+    background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.15), #aaaaaa);
+    transition: opacity 0.4s ease, filter 0.4s ease;
+}
+
+.pokemon.fainted {
+    opacity: 0.5;
+    filter: grayscale(80%);
+}
+
+/* --- Style for Coordinates --- */
+.coordinate {
+    background-color: #e0f7fa;
+    /* Light cyan background */
+    color: #006064;
+    /* Dark cyan text */
+    padding: 1px 3px;
+    border-radius: 3px;
+    font-weight: bold;
+    font-family: monospace;
+    /* Good for displaying coordinates */
+    margin: 0 1px;
+    /* Small spacing adjustment */
+}
+
+.log-entry {
+    white-space: pre-wrap;
+    /* Preserve whitespace/newlines */
+    word-wrap: break-word;
+    /* Break long words/lines */
+}
+
+/* Style for other log sections if needed */
+.goals-log .log-entry {
+    margin-bottom: 0.5em;
+    /* Example spacing */
+}
+
+.goals-log ul {
+    padding-left: 20px;
+    margin-top: 0.2em;
+}
+
+.goals-log h3 {
+    margin-bottom: 0.3em;
+}
+
+/* --- Added Style for Actions --- */
+.action-type-ab {
+    color: #c62828;
+    /* Red */
+    font-weight: bold;
+    background-color: #ffebee;
+    /* Light Red background */
+    padding: 0px 2px;
+    /* Adjusted padding slightly */
+    border-radius: 3px;
+    font-family: monospace;
+    margin: 0 1px;
+    /* Small spacing */
+    display: inline-block;
+    /* Ensures spacing works */
+}
+
+.action-type-direction {
+    color: #1565c0;
+    /* Blue */
+    font-weight: bold;
+    background-color: #e3f2fd;
+    /* Light Blue background */
+    padding: 0px 2px;
+    /* Adjusted padding slightly */
+    border-radius: 3px;
+    font-family: monospace;
+    margin: 0 1px;
+    /* Small spacing */
+    display: inline-block;
+    /* Ensures spacing works */
 }

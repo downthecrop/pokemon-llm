@@ -1,5 +1,4 @@
 # --- run.py ---
-#!/usr/bin/env python3
 
 import subprocess
 import socket
@@ -7,17 +6,14 @@ import time
 import os
 import sys
 import select
-import asyncio # <-- Added
-import websockets # <-- Added
-import json # <-- Added
-import logging # <-- Added
-import datetime # <-- Added
-import random # <-- Added (for initial state generation if needed, and potential future use)
+import asyncio
+import websockets
+import json
+import logging
+import datetime
 from helpers import (
     capture,
     readrange,
-    send_command,
-    get_state,
     get_party_text,
     get_badges_text,
     get_location,
@@ -342,7 +338,7 @@ async def main_async(auto):
 
             # Start the LLM driver loop
             # Pass the shared state dictionary and the broadcast function
-            llm_task = asyncio.create_task(run_auto_loop(sock, state, broadcast, interval=8.0))
+            llm_task = asyncio.create_task(run_auto_loop(sock, state, broadcast, interval=10.0))
 
             # Wait for either task to complete (or run forever if they don't)
             # If one fails, we might want to stop the other.
@@ -417,10 +413,6 @@ if __name__ == '__main__':
         finally:
             log.info("Async main finished.")
     else:
-        # Run the synchronous version for interactive console
-        # Note: This means no WebSocket server in interactive mode currently.
-        # A more complex setup involving threading or async console input
-        # would be needed to run both interactively.
         proc = sock = None
         try:
             proc, sock = start_mgba_with_scripting()

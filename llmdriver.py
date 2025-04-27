@@ -1,4 +1,3 @@
-# --- llmdriver.py ---
 import os
 import json
 import time
@@ -8,32 +7,31 @@ import asyncio
 import datetime
 import logging
 import tiktoken
-import socket # Added for socket errors
+import socket
 import re
 
-from openai import OpenAI, APIError # Added APIError for specific handling
+from openai import OpenAI, APIError
 from dotenv import load_dotenv
-from helpers import prep_llm # Keep using prep_llm
+from helpers import prep_llm
 
-# Configure logging for this module
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
 
-# --- Constants ---
-ACTION_RE = re.compile(r'^[LRUDABS](?:;[LRUDABS])*(?:;)?$') # Matches sequences like "U", "U;", "U;D;L;R;A;B;S" or "U;D;L;R;A;B;S;"
-ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE) # Regex to extract analysis
-STREAM_TIMEOUT = 30 # Maximum seconds to wait for the LLM stream before timing out
-CLEANUP_WINDOW = 15 # How many LLM responses before summarizing history
-IMAGE_TOKEN_COST_HIGH_DETAIL = 258 # Placeholder based on past OpenAI models
-IMAGE_TOKEN_COST_LOW_DETAIL = 85 # Placeholder
+
+ACTION_RE = re.compile(r'^[LRUDABS](?:;[LRUDABS])*(?:;)?$')
+ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE)
+STREAM_TIMEOUT = 30
+CLEANUP_WINDOW = 15
+IMAGE_TOKEN_COST_HIGH_DETAIL = 258
+IMAGE_TOKEN_COST_LOW_DETAIL = 85
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
-# --- Environment & API Setup ---
+
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-MODE = os.getenv("LLM_MODE", "GEMINI").upper() # Default to GEMINI if not set
+MODE = "GEMINI" # OPENAI or GEMINI
 
 client = None
 MODEL = None
@@ -43,7 +41,7 @@ if MODE == "OPENAI":
         log.error("MODE is OPENAI but OPENAI_API_KEY not found in environment variables.")
         raise ValueError("Missing OpenAI API Key")
     client = OpenAI(api_key=OPENAI_KEY)
-    MODEL = "gpt-4.1-nano" # Or your preferred OpenAI model
+    MODEL = "gpt-4.1-nano"
     log.info(f"Using OpenAI Mode. Model: {MODEL}")
 elif MODE == "GEMINI":
     if not GEMINI_KEY:
@@ -53,34 +51,33 @@ elif MODE == "GEMINI":
         api_key=GEMINI_KEY,
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
     )
-    # Use specific model name based on Google's naming conventions if different
+
     MODEL = "gemini-2.5-flash-preview-04-17"
     log.info(f"Using Gemini Mode (via OpenAI client). Model: {MODEL}")
 else:
     log.error(f"Invalid MODE selected: {MODE}")
     raise ValueError(f"Invalid MODE: {MODE}")
 
-# --- Tokenizer Setup ---
+
 try:
     encoding = tiktoken.get_encoding("cl100k_base")
     log.info("Tiktoken encoder 'cl100k_base' loaded.")
 except Exception as e:
     log.warning(f"Failed to load tiktoken encoder: {e}. Token counts will be approximate (char/4).")
-    encoding = None # Fallback will be used
+    encoding = None
 
-# --- Helper function for token estimation ---
+
 def count_tokens(text: str) -> int:
     """Estimates token count for a given text using the loaded encoding."""
     if not text: return 0
-    if not encoding: return len(text) // 4 # Fallback
+    if not encoding: return len(text) // 4
     try:
         return len(encoding.encode(text))
     except Exception as e:
         log.warning(f"Tiktoken encoding failed (len {len(text)}): {e}. Using fallback.")
         return len(text) // 4
 
-# --- System Prompt Definition ---
-# System prompt content remains unchanged as requested.
+
 def build_system_prompt(actionSummary: str) -> str:
     """Constructs the system prompt for the LLM, including the chat history summary."""
     summary_limit = 1500
@@ -89,7 +86,6 @@ def build_system_prompt(actionSummary: str) -> str:
         truncated_summary = actionSummary[:summary_limit] + "... (truncated)"
         log.warning(f"Action summary truncated for system prompt (>{summary_limit} chars).")
 
-    # System prompt text copied directly from the original code
     return f"""
         You are an AI agent designed to play Pokémon Red. Your task is to analyze the game state, plan your actions, and provide input commands to progress through the game.
 
@@ -170,14 +166,14 @@ def build_system_prompt(actionSummary: str) -> str:
         Here is the current game state:
         """
 
-# --- Global State & History Initialization ---
+
 chat_history = [{"role": "system", "content": build_system_prompt("")}]
 response_count = 0
-action_count = 0 # Track total actions/cycles for the state
-tokens_used_session = 0 # Track total estimated tokens for the state
-start_time = datetime.datetime.now() # Track game time for the state
+action_count = 0
+tokens_used_session = 0
+start_time = datetime.datetime.now()
 
-# --- History Management Functions ---
+
 def cleanup_image_history():
     """Replaces image_url data with text placeholders in chat history."""
     for msg in chat_history:
@@ -188,7 +184,7 @@ def cleanup_image_history():
                 if isinstance(seg, dict) and seg.get("type") == "image_url":
                     if not has_image:
                         new_content.append({"type": "text", "text": "[Image Content Removed]"})
-                        has_image = True # Only add one placeholder per message
+                        has_image = True
                 else:
                     new_content.append(seg)
             msg["content"] = new_content
@@ -196,8 +192,8 @@ def cleanup_image_history():
 def calculate_prompt_tokens(messages):
     """Estimates token count for a list of messages."""
     tokens = 0
-    tokens_per_message = 3 # Standard overhead per message
-    tokens_per_role = 1 # Estimated overhead per role tag
+    tokens_per_message = 3
+    tokens_per_role = 1
     try:
         for message in messages:
             tokens += tokens_per_message + tokens_per_role
@@ -211,12 +207,12 @@ def calculate_prompt_tokens(messages):
                         if item_type == 'text':
                             tokens += count_tokens(item.get('text', ''))
                         elif item_type == 'image_url':
-                            tokens += IMAGE_TOKEN_COST_HIGH_DETAIL # Assume high detail for now
-        tokens += 3  # Priming assistant reply
+                            tokens += IMAGE_TOKEN_COST_HIGH_DETAIL
+        tokens += 3
         return tokens
     except Exception as e:
          log.error(f"Error calculating prompt tokens: {e}", exc_info=True)
-         return 0 # Return 0 or raise?
+         return 0
 
 def summarize_and_reset():
     """Condenses history, updates system prompt, resets history, accounts for tokens."""
@@ -224,27 +220,16 @@ def summarize_and_reset():
 
     log.info(f"Summarizing chat history ({len(chat_history)} messages)...")
 
-    # Create temporary history without images for summarization
+
     history_for_summary = []
     for msg in chat_history:
-        if msg['role'] == 'system': continue # Skip system prompt itself
         if msg['role'] == 'assistant':
-            content = msg.get("content")
-            # Include only non-empty, non-error assistant text responses
-            if isinstance(content, str) and content.strip() and not content.startswith("[ERROR"):
-                 # Exclude game analysis block from summary input if present
-                 cleaned_content = ANALYSIS_RE.sub("", content).strip() # Remove analysis block
-                 json_match = re.search(r'(\{[\s\S]*?\})\s*$', cleaned_content) # Find last json block after removing analysis
-                 if json_match:
-                     cleaned_content = cleaned_content[:json_match.start()].strip() # Remove JSON block
+            history_for_summary.append(msg)
 
-                 if cleaned_content: # Only add if there's non-analysis, non-json text left
-                     history_for_summary.append({"role": "assistant", "content": cleaned_content})
-        # Could potentially include user text prompts here too if needed for context
 
     if not history_for_summary:
         log.info("No relevant assistant messages to summarize, skipping summarization call.")
-        # Still reset history to just the system prompt
+
         current_system_prompt = chat_history[0]
         chat_history = [current_system_prompt]
         response_count = 0
@@ -270,7 +255,7 @@ def summarize_and_reset():
             model=MODEL,
             messages=summary_input_messages,
             temperature=0.7,
-            max_tokens=512, # Limit summary length
+            max_tokens=512,
         )
         if summary_resp.choices and summary_resp.choices[0].message.content:
             summary_text = summary_resp.choices[0].message.content.strip()
@@ -289,25 +274,15 @@ def summarize_and_reset():
     except Exception as e:
         log.error(f"Error during LLM summarization call: {e}", exc_info=True)
 
-    # Update system prompt and reset history
+
     new_system_prompt_content = build_system_prompt(summary_text)
-    chat_history = [{"role": "system", "content": new_system_prompt_content}] # Reset history
+    chat_history = [{"role": "system", "content": new_system_prompt_content}]
     response_count = 0
     log.info("Chat history summarized and reset.")
 
 
-# --- LLM Interaction Function ---
-# MODIFIED: Return tuple of (action, analysis_text)
-def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tuple[str | None, str | None]:
-    """
-    Sends state to LLM, streams response, updates history, estimates tokens,
-    extracts action and game analysis.
 
-    Returns:
-        tuple[str | None, str | None]: A tuple containing the extracted action string
-                                        (or None if not found/invalid) and the extracted
-                                        game analysis string (or None if not found).
-    """
+def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tuple[str | None, str | None]:
     global response_count, tokens_used_session
 
     payload = copy.deepcopy(state_data)
@@ -316,9 +291,8 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
 
     if not isinstance(payload, dict):
         log.error(f"Invalid state_data structure: {type(state_data)}")
-        return None, None # Return tuple
+        return None, None
 
-    # Prepare API message content
     text_segment = {"type": "text", "text": json.dumps(payload)}
     current_content = [text_segment]
     image_parts_for_api = []
@@ -335,13 +309,13 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
     current_user_message_api = {"role": "user", "content": current_content}
     messages_for_api = chat_history + [current_user_message_api]
 
-    # Calculate Input Tokens
+
     call_input_tokens = calculate_prompt_tokens(messages_for_api)
     log.info(f"LLM call estimate: {call_input_tokens} input tokens ({len(image_parts_for_api)} images). History: {len(chat_history)} turns.")
 
     full_output = ""
     action = None
-    analysis_text = None # Initialize analysis text
+    analysis_text = None
     call_output_tokens = 0
 
     try:
@@ -356,7 +330,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
         collected_chunks = []
         stream_start_time = time.time()
         log.info("LLM Stream:")
-        print(">>> ", end="", flush=True) # Start stream indicator
+        print(">>> ", end="", flush=True)
 
         for chunk in response:
             if time.time() - stream_start_time > timeout:
@@ -372,11 +346,11 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
                 collected_chunks.append(delta_content)
 
             if finish_reason:
-                print(f"\n[END - {finish_reason}]", flush=True) # Indicate end reason
+                print(f"\n[END - {finish_reason}]", flush=True)
                 log.info(f"LLM stream finished. Reason: {finish_reason}")
                 break
         else:
-             # This else block runs if the loop completes without a break (e.g., no finish_reason?)
+
              print("\n[END - No Finish Reason]", flush=True)
              log.warning("LLM stream finished without a finish_reason.")
 
@@ -384,24 +358,23 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
         full_output = "".join(collected_chunks).strip()
         log.info(f"LLM raw output ({len(full_output)} chars).")
 
-        # Estimate Output Tokens & Update Session Total
+
         call_output_tokens = count_tokens(full_output)
         total_call_tokens = call_input_tokens + call_output_tokens
         tokens_used_session += total_call_tokens
         log.info(f"LLM call tokens: ~{call_output_tokens} output, ~{total_call_tokens} total. Session: {tokens_used_session}")
 
-        # Add Interaction to History (using placeholders for images)
+
         user_history_content = [text_segment] + image_placeholders_for_history
         chat_history.append({"role": "user", "content": user_history_content})
-        chat_history.append({"role": "assistant", "content": full_output}) # Store the full, raw output
+        chat_history.append({"role": "assistant", "content": full_output})
 
         response_count += 1
         log.info(f"Response count: {response_count}/{CLEANUP_WINDOW}")
         if response_count >= CLEANUP_WINDOW:
-            summarize_and_reset() # Resets response_count
+            summarize_and_reset()
 
-        # --- Extraction ---
-        # 1. Extract Game Analysis
+
         analysis_match = ANALYSIS_RE.search(full_output)
         if analysis_match:
             analysis_text = analysis_match.group(1).strip()
@@ -410,9 +383,9 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
             log.warning("Could not find <game_analysis> block in LLM output.")
             analysis_text = None
 
-        # 2. Extract Action (JSON preferred, then fallback)
+
         try:
-            json_match = re.search(r'(\{[\s\S]*?\})\s*$', full_output) # Find last json block
+            json_match = re.search(r'(\{[\s\S]*?\})\s*$', full_output)
             if json_match:
                 json_candidate = json_match.group(1)
                 try:
@@ -421,48 +394,46 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
                     if isinstance(action_from_json, str) and ACTION_RE.match(action_from_json):
                         action = action_from_json
                         log.info(f"Extracted action via JSON: {action}")
-                    # else: log.warning("JSON action invalid or missing.") # Optional: Log invalid JSON action
+
                 except json.JSONDecodeError:
                      log.warning(f"Failed to decode potential JSON: '{json_candidate[:100]}...'")
-            # else: log.info("No JSON block found at end of output.") # Optional: Debug log
 
-            if action is None: # Fallback: Last line regex match
+
+            if action is None:
                 lines = [line.strip() for line in full_output.splitlines() if line.strip()]
                 if lines:
                     last_line = lines[-1]
-                    # Ensure last line is not the analysis block itself or part of it
+
                     if not last_line.startswith('<game_analysis>') and not last_line.endswith('</game_analysis>'):
                         if not last_line.startswith('{') and ACTION_RE.match(last_line):
                             action = last_line
                             log.info(f"Extracted action via fallback (last line regex): {action}")
-                        # else: log.warning(f"Fallback failed: Last line '{last_line}' invalid.") # Optional: Log fallback failure
-                    # else: log.warning("Fallback failed: Last line appears to be analysis tag.") # Optional: Log fallback failure
-                # else: log.warning("Fallback failed: LLM output had no non-empty lines.") # Optional: Log empty output
+
+
+
         except Exception as e:
             log.error(f"Error during action extraction: {e}", exc_info=True)
 
     except APIError as e:
         log.error(f"API error during LLM call: {e}")
-        # Optionally add error to history?
-        # chat_history.append({"role": "assistant", "content": f"[ERROR DURING LLM CALL: APIError {e.status_code}]"})
-        return None, None # Return tuple on error
+
+        return None, None
     except Exception as e:
         log.error(f"Error during LLM API call/streaming: {e}", exc_info=True)
-        # Optionally add error to history?
-        # chat_history.append({"role": "assistant", "content": f"[ERROR DURING LLM CALL: {type(e).__name__}]"})
-        return None, None # Return tuple on error
+
+        return None, None
 
     if action is None:
          log.error("Failed to extract a valid action from LLM response.")
 
-    return action, analysis_text # Return both action and analysis
+    return action, analysis_text
 
 
-# --- Image Encoding Helper ---
+
 def encode_image_base64(image_path: str) -> str | None:
     """Reads an image file and returns its base64 encoded string."""
     if not os.path.exists(image_path) or os.path.getsize(image_path) == 0:
-        # log.warning(f"Image file not found or empty: {image_path}") # Reduce log noise maybe
+
         return None
     try:
         with open(image_path, "rb") as f:
@@ -471,7 +442,7 @@ def encode_image_base64(image_path: str) -> str | None:
         log.error(f"Error reading/encoding image '{image_path}': {e}")
         return None
 
-# --- Main Execution Loop ---
+
 async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0):
     """Main async loop: Get state, call LLM, send action, update/broadcast state."""
     global action_count, tokens_used_session, start_time
@@ -481,10 +452,10 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         loop_start_time = time.time()
         current_cycle = action_count + 1
         log.info(f"--- Loop Cycle {current_cycle} ---")
-        update_payload = {} # Changes to broadcast for this iterationa
-        action_payload = {} # Action to send to mGBA
+        update_payload = {}
+        action_payload = {}
 
-        # 1. Get Game State from mGBA
+
         try:
             log.debug("Requesting game state from mGBA...")
             current_mGBA_state = prep_llm(sock)
@@ -504,30 +475,30 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             await asyncio.sleep(max(0, interval - (time.time() - loop_start_time)))
             continue
 
-        # 2. Update Shared State (Pre-LLM) & Build LLM Input
-        llm_input_state = copy.deepcopy(current_mGBA_state) # Start with mGBA state for LLM
+
+        llm_input_state = copy.deepcopy(current_mGBA_state)
         state_update_start = time.time()
 
-        # Team Update
+
         new_team = current_mGBA_state.get('party')
         if new_team is not None and json.dumps(new_team) != json.dumps(state.get('currentTeam')):
             state['currentTeam'] = new_team
             update_payload['currentTeam'] = state['currentTeam']
             log.info("State Update: currentTeam")
 
-        # Badge Update
+
         badge_data = current_mGBA_state.get('badges')
         num_badges = 0
         if isinstance(badge_data, (list, int, str)):
              try: num_badges = int(badge_data) if isinstance(badge_data, (int, str)) else len(badge_data)
              except ValueError: log.warning(f"Invalid badge data format: {badge_data}")
-        new_badges_list = [{} for _ in range(num_badges)] # Simple list representation
+        new_badges_list = [{} for _ in range(num_badges)]
         if new_badges_list != state.get('badges'):
              state['badges'] = new_badges_list
              update_payload['badges'] = state['badges']
              log.info(f"State Update: badges ({len(new_badges_list)})")
 
-        # Location Update
+
         pos = current_mGBA_state.get('position')
         map_id = current_mGBA_state.get('map_id', 'N/A')
         map_name = current_mGBA_state.get('map_name', '')
@@ -539,7 +510,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             update_payload['minimapLocation'] = state['minimapLocation']
             log.info(f"State Update: minimapLocation -> {loc_str}")
 
-        # Goal Update Logic (Check if all badges obtained)
+
         current_badges_count = len(state.get('badges', []))
         primary_goal = state.get("goals", {}).get("primary", "")
         if current_badges_count >= 8 and not primary_goal.startswith("Become the Pokemon League Champion"):
@@ -547,11 +518,19 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             state["goals"] = {
                 "primary": "Become the Pokemon League Champion!",
                 "secondary": ["Travel to the Indigo Plateau.", "Defeat the Elite Four."],
-                "tertiary": "Train Pokemon to level 100." # Example tertiary
+                "tertiary": "Train Pokemon to level 100."
+            }
+            update_payload["goals"] = state["goals"]
+        else:
+            log.info("***** Debug UPDATING PRIMARY GOAL *****")
+            state["goals"] = {
+                "primary": "Become the Pokemon League Champion!",
+                "secondary": ["Travel to the Indigo Plateau.", "Defeat the Elite Four."],
+                "tertiary": "Train Pokemon to level 100."
             }
             update_payload["goals"] = state["goals"]
 
-        # Encode Images for LLM
+
         b64_ss = encode_image_base64(SCREENSHOT_PATH)
         if b64_ss: llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": "high"}}
         else: llm_input_state["screenshot"] = None
@@ -561,13 +540,13 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         else: llm_input_state["minimap"] = None
         log.debug(f"Pre-LLM state update & image prep took {time.time() - state_update_start:.2f}s. SS:{bool(b64_ss)}, MM:{bool(b64_mm)}")
 
-        # 3. Call LLM
+
         llm_call_start = time.time()
-        # MODIFIED: Receive both action and game_analysis
-        action, game_analysis = llm_stream_action(llm_input_state) # Updates tokens_used_session internally
+
+        action, game_analysis = llm_stream_action(llm_input_state)
         log.debug(f"LLM call finished (took {time.time() - llm_call_start:.2f}s).")
 
-        # 4. Send Action to mGBA & Update State (Post-LLM)
+
         action_to_send = None
         log_action_text = "No action taken (LLM failed)."
 
@@ -583,13 +562,12 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
                 break
             except Exception as e:
                 log.error(f"Unexpected error sending action '{action_to_send}': {e}", exc_info=True)
-                # Consider if loop should break on unexpected send errors
+
         else:
             log.error("No valid action from LLM. Cannot send command.")
-            # Maybe send a default 'wait' or 'noop' action? Or just skip?
 
-        # Update state fields that change every loop or after LLM call
-        action_count = current_cycle # Increment completed action count
+
+        action_count = current_cycle
         if state.get('actions') != action_count:
              state['actions'] = action_count
              update_payload['actions'] = action_count
@@ -608,35 +586,34 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             state['modelName'] = MODEL
             update_payload['modelName'] = MODEL
 
-        # Add Log Entry
-        log_id_counter = state.get("log_id_counter", 0) + 1 # Start from 1 or higher?
+
+        log_id_counter = state.get("log_id_counter", 0) + 1
         state["log_id_counter"] = log_id_counter
 
-        # MODIFIED: Construct log_text including game_analysis
+
         analysis_log_part = f"{game_analysis.strip()}\n" if game_analysis and game_analysis.strip() else "\n\n(No game analysis provided)"
         log_text = f"{log_action_text}"
 
         update_payload["log_entry"] = { "id": log_id_counter, "text": analysis_log_part }
         action_payload["log_entry"] = { "id": log_id_counter, "text": log_text }
-        # Log only the action part to console to avoid clutter
+
         log.info(f"Log Entry #{log_id_counter}: {log_action_text} (Analysis included in state log)")
 
 
-        # 5. Broadcast State Updates via WebSocket
+
         if update_payload:
             log.debug(f"Broadcasting {len(update_payload)} state updates: {list(update_payload.keys())}")
             try:
-                await broadcast_func(update_payload) # Assumes broadcast_func is awaitable
+                await broadcast_func(update_payload)
                 await broadcast_func(action_payload)
             except Exception as e:
                 log.error(f"Error during WebSocket broadcast: {e}", exc_info=True)
-        # else: log.debug("No state changes to broadcast.") # Reduce log noise
 
-        # 6. Wait for Next Cycle
+
         elapsed_loop_time = time.time() - loop_start_time
         wait_time = max(0, interval - elapsed_loop_time)
         log.info(f"Cycle {current_cycle} took {elapsed_loop_time:.2f}s. Waiting {wait_time:.2f}s...")
         await asyncio.sleep(wait_time)
 
-    # End of loop
+
     log.info("Auto loop terminated.")

@@ -25,7 +25,7 @@ local string_pack = string.pack                     -- Lua ≥5.3
 local KEY_INDEX = { A=0, B=1, SELECT=2, START=3, RIGHT=4, LEFT=5, UP=6, DOWN=7, R=8, L=9 }
 local KEY_ALIAS = {
    U="UP", u="UP",  D="DOWN", d="DOWN",  L="LEFT", l="LEFT",
-   R="RIGHT", r="RIGHT", LT="L", lt="L", RT="R", rt="R",
+   R="RIGHT", r="RIGHT", LT="L", lt="L", RT="R", rt="R", -- Fixed LT/RT alias to L/R GBA buttons
    S="START", s="SELECT",
 }
 local KEY_MASK = {}
@@ -34,14 +34,29 @@ for k,i in pairs(KEY_INDEX) do
 end
 
 --------------------------------------------------------------------------
+--  UTILITY: TABLE TO STRING (FOR DEBUGGING) ----------------------------
+--------------------------------------------------------------------------
+local function table_to_string(tbl)
+    if not tbl then return "nil" end
+    local parts = {}
+    for k, v in pairs(tbl) do
+        parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+    end
+    if #parts == 0 then return "{}" end
+    return "{ " .. table.concat(parts, ", ") .. " }"
+end
+
+--------------------------------------------------------------------------
 --  UTILITY: READ PLAYER POS (GEN1) --------------------------------------
 --------------------------------------------------------------------------
 local function getPlayerPos()
-   -- read the two one-byte tile-coord addresses
    local bx = emu:readRange(0xD362, 1)
    local by = emu:readRange(0xD361, 1)
-   if not bx or not by then return nil, nil end
-   return string.byte(bx, 1), string.byte(by, 1)
+   if not bx or not by then
+      return nil, nil
+   end
+   local x, y = string.byte(bx, 1), string.byte(by, 1)
+   return x, y
 end
 
 --------------------------------------------------------------------------
@@ -52,13 +67,15 @@ local function isInMenu()
    local b = emu:readRange(0xCC51, 2)
    if not b then return false end
    local hi, lo = string.byte(b,1), string.byte(b,2)
-   return (hi ~= 0 or lo ~= 0)
+   local result = (hi ~= 0 or lo ~= 0)
+   return result
 end
 
 local function isInBattle()
    -- D057: non-zero whenever the battle engine is active
    local flag = emu:readRange(0xD057, 1)
-   return flag and string.byte(flag, 1) ~= 0
+   local result = flag and string.byte(flag, 1) ~= 0
+   return result
 end
 
 -- CC50 == 0x5F  → text engine is running
@@ -67,24 +84,38 @@ local function isInDialogue()
    local ptr = emu:readRange(0xCC50, 1)
    local flg = emu:readRange(0xCC54, 1)
    if not ptr or not flg then return false end
-   return string.byte(ptr,1) == 0x5F and string.byte(flg,1) ~= 0x30
+   local ptr_val, flg_val = string.byte(ptr,1), string.byte(flg,1)
+   local result = (ptr_val == 0x5F and flg_val ~= 0x30)
+   return result
 end
 
 local function getState()
-   if     isInBattle()       then return "battle"
-   elseif isInMenu()         then return "menu"
-   elseif isInDialogue() then return "dialogue"
-   else                      return "roam"
+   console:log("[DEBUG] getState: Checking state...")
+   local state
+   if     isInBattle()       then state = "battle"
+   elseif isInMenu()         then state = "menu"
+   elseif isInDialogue() then state = "dialogue"
+   else                      state = "roam"
    end
+   console:log("[DEBUG] getState: Determined state = " .. state)
+   return state
 end
 
 --------------------------------------------------------------------------
 --  SOCKET HOUSEKEEPING ----------------------------------------------------
 --------------------------------------------------------------------------
 local server, clients, nextID = nil, {}, 1
-local function log(id,m)   console:log  ("Socket "..id.." "..m) end
-local function err(id,m)   console:error("Socket "..id.." ERROR: "..m) end
-local function stop(id)    if clients[id] then clients[id]:close(); clients[id]=nil end end
+local function log(id,m)   console:log  ("[INFO ] Socket "..id.." "..m) end -- Added prefix
+local function err(id,m)   console:error("[ERROR] Socket "..id.." ERROR: "..m) end -- Added prefix
+local function stop(id)
+   if clients[id] then
+      log(id, "closing connection.")
+      clients[id]:close();
+      clients[id]=nil
+   else
+       console:log("[DEBUG] stop: Attempted to stop non-existent client ID " .. id)
+   end
+end
 
 --------------------------------------------------------------------------
 --  INPUT QUEUE STATE ------------------------------------------------------
@@ -99,34 +130,57 @@ local function stepAutoRelease()
    -- auto-release any held keys
    if next(hold) then
       local rel = 0
+      local keys_to_remove = {} -- Avoid modifying table while iterating
       for k,t in pairs(hold) do
          t = t - 1
          if t <= 0 then
+            console:log("[DEBUG] stepAutoRelease: Time expired for key '" .. k .. "'. Scheduling release.")
             rel = rel | KEY_MASK[k]
-            hold[k] = nil
+            keys_to_remove[k] = true -- Mark for removal
          else
             hold[k] = t
          end
       end
-      if rel ~= 0 then emu:clearKeys(rel) end
+      -- Remove keys marked for removal
+      for k, _ in pairs(keys_to_remove) do
+          hold[k] = nil
+      end
+
+      if rel ~= 0 then
+         console:log("[DEBUG] stepAutoRelease: Releasing keys with mask: " .. rel .. ". New hold: " .. table_to_string(hold))
+         emu:clearKeys(rel)
+      end
    end
 
    -- process queued inputs
    if inputQueue then
       inputQueue.framesUntilNext = inputQueue.framesUntilNext - 1
+
       if inputQueue.framesUntilNext <= 0 then
+         console:log("[DEBUG] stepAutoRelease: Queue ready for next input (framesUntilNext <= 0).")
          local i = inputQueue.idx
 
          if i <= #inputQueue.tokens then
             inputQueue.prevX, inputQueue.prevY = getPlayerPos()
             local key = inputQueue.tokens[i]
+            console:log("[DEBUG] stepAutoRelease: Queue executing index " .. i .. ", token: '" .. key .. "' (Mask: " .. KEY_MASK[key] .. ")")
             emu:addKeys(KEY_MASK[key])
             hold[key] = HOLD_FRAMES
+            console:log("[DEBUG] stepAutoRelease: Added key '" .. key .. "' to hold for " .. HOLD_FRAMES .. " frames. New hold: " .. table_to_string(hold))
             inputQueue.idx = i + 1
             inputQueue.framesUntilNext = QUEUE_SPACING
+            console:log("[DEBUG] stepAutoRelease: Queue index advanced to " .. inputQueue.idx .. ". Next input in " .. inputQueue.framesUntilNext .. " frames.")
          else
-            inputQueue.sock:send("QUEUE_COMPLETE\n")
+            console:log("[DEBUG] stepAutoRelease: Input queue finished processing all tokens.")
+            local sock = inputQueue.sock
+            if sock and clients[inputQueue.sockId] then -- Check if socket is still valid
+               console:log("[DEBUG] stepAutoRelease: Sending QUEUE_COMPLETE to client " .. inputQueue.sockId)
+               sock:send("QUEUE_COMPLETE\n")
+            else
+               console:log("[DEBUG] stepAutoRelease: Queue finished, but client socket " .. (inputQueue.sockId or "??") .. " is no longer valid. Cannot send QUEUE_COMPLETE.")
+            end
             inputQueue = nil
+            console:log("[DEBUG] stepAutoRelease: inputQueue set to nil.")
          end
       end
    end
@@ -136,10 +190,16 @@ callbacks:add("frame", stepAutoRelease)
 --------------------------------------------------------------------------
 --  CAPTURE ----------------------------------------------------------------
 --------------------------------------------------------------------------
-local function sendCapture(sock)
+local function sendCapture(sock, sockId)
+   console:log("[DEBUG] sendCapture: Socket " .. sockId .. " requested CAP.")
    local img = emu:screenshotToImage()
-   if not img then sock:send("ERR no image\n"); return end
+   if not img then
+      err(sockId, "emu:screenshotToImage failed.")
+      sock:send("ERR no image\n");
+      return
+   end
    local w,h = img.width, img.height
+   console:log("[DEBUG] sendCapture: Captured image " .. w .. "x" .. h)
    local buf = {}
    for y=0,h-1 do
       for x=0,w-1 do
@@ -147,24 +207,37 @@ local function sendCapture(sock)
       end
    end
    local data = table.concat(buf)
-   sock:send(string_pack(">I4", #data))
+   local len_packed = string_pack(">I4", #data)
+   console:log("[DEBUG] sendCapture: Sending image data (" .. #data .. " bytes) to socket " .. sockId)
+   sock:send(len_packed)
    sock:send(data)
+   console:log("[DEBUG] sendCapture: Image data sent.")
 end
 
 --------------------------------------------------------------------------
 --  READRANGE --------------------------------------------------------------
 --------------------------------------------------------------------------
-local function sendReadRange(sock, addr_str, len_str)
+local function sendReadRange(sock, sockId, addr_str, len_str)
+   console:log("[DEBUG] sendReadRange: Socket " .. sockId .. " requested READRANGE " .. addr_str .. " " .. len_str)
    local addr   = tonumber(addr_str) or tonumber(addr_str, 16)
    local length = tonumber(len_str)  or tonumber(len_str, 16)
    if not addr or not length or length < 1 then
+      err(sockId, "Bad arguments for READRANGE: addr=" .. tostring(addr) .. ", len=" .. tostring(length))
       sock:send("ERR bad args\n")
       return
    end
+   console:log("[DEBUG] sendReadRange: Reading " .. length .. " bytes from address 0x" .. string.format("%X", addr))
    local data = emu:readRange(addr, length)
-   if not data then sock:send("ERR read failed\n"); return end
-   sock:send(string_pack(">I4", #data))
+   if not data then
+      err(sockId, "emu:readRange failed for addr=0x" .. string.format("%X", addr) .. ", len=" .. length)
+      sock:send("ERR read failed\n");
+      return
+   end
+   local len_packed = string_pack(">I4", #data)
+   console:log("[DEBUG] sendReadRange: Sending memory data (" .. #data .. " bytes) to socket " .. sockId)
+   sock:send(len_packed)
    sock:send(data)
+   console:log("[DEBUG] sendReadRange: Memory data sent.")
 end
 
 --------------------------------------------------------------------------
@@ -174,75 +247,120 @@ local function canonical(tok)
    return KEY_ALIAS[tok] or KEY_ALIAS[tok:upper()] or tok:upper()
 end
 
-local function parse(line, sock)
-   console:log("parse: "..line)
+local function parse(line, sock, sockId)
+   console:log("[DEBUG] parse: Socket " .. sockId .. " received line: '" .. line .. "'")
    line = line:match("^(.-)%s*$")
-   if line == "" then return end
+   if line == "" then
+       console:log("[DEBUG] parse: Line is empty after trimming.")
+       return
+   end
 
    -- report current state
    if line:upper() == "STATE" then
-      sock:send(getState() .. "\n")
+      console:log("[DEBUG] parse: STATE command received.")
+      local state = getState()
+      console:log("[DEBUG] parse: Sending state '" .. state .. "' to socket " .. sockId)
+      sock:send(state .. "\n")
       return
    end
 
    -- queued-input syntax: tok1;tok2;...;
    if line:find(";") then
+      console:log("[DEBUG] parse: Detected queue syntax ';'.")
       local toks = {}
       for tok in line:gmatch("([^;]+)") do
          tok = tok:match("^%s*(.-)%s*$")
-         if tok ~= "" then toks[#toks+1] = canonical(tok) end
+         if tok ~= "" then
+            local ctok = canonical(tok)
+            if not KEY_MASK[ctok] then
+               return nil, "Unknown key '" .. tok .. "' (canonical: '" .. ctok .. "') in queue"
+            end
+            toks[#toks+1] = ctok
+            console:log("[DEBUG] parse: Added token '" .. ctok .. "' to queue.")
+         end
       end
-      if #toks > 1 then
+      if #toks > 0 then -- Allow single-item queues if needed, though maybe less useful
+         console:log("[DEBUG] parse: Setting up input queue with " .. #toks .. " tokens.")
          local px, py = getPlayerPos()
          inputQueue = {
             tokens          = toks,
             idx             = 1,
-            framesUntilNext = 0,
+            framesUntilNext = 0, -- Start immediately
             sock            = sock,
+            sockId          = sockId, -- Store ID for logging/checking later
             prevX           = px,
             prevY           = py,
          }
+         console:log("[DEBUG] parse: Input queue created: " .. table_to_string(inputQueue)) -- Note: sock won't print nicely
          return
       else
-         line = toks[1]
+         console:log("[DEBUG] parse: Queue syntax found, but no valid tokens extracted.")
+         -- Treat as empty command or potentially error? Currently does nothing.
+         return nil, "Queue command contained no valid tokens."
       end
    end
 
    -- single commands
    local a,l = line:match("^READRANGE%s+(%S+)%s+(%S+)$")
-   if a and l then sendReadRange(sock, a, l); return end
-   if line:upper() == "CAP" then sendCapture(sock); return end
+   if a and l then
+      console:log("[DEBUG] parse: READRANGE command received.")
+      sendReadRange(sock, sockId, a, l)
+      return
+   end
+   if line:upper() == "CAP" then
+      console:log("[DEBUG] parse: CAP command received.")
+      sendCapture(sock, sockId)
+      return
+   end
 
    local num = line:match("^SET%s+(%S+)$")
    if num then
+      console:log("[DEBUG] parse: SET command received with value: " .. num)
       local m = tonumber(num) or tonumber(num,16)
-      if not m then return nil, "Bad number "..num end
+      if not m then return nil, "Bad number for SET: "..num end
+      console:log("[DEBUG] parse: Setting keys directly to mask: " .. m)
       emu:setKeys(m)
+      console:log("[DEBUG] parse: Clearing hold table due to SET command.")
       hold = {}
       return
    end
 
    -- individual key presses/releases
+   console:log("[DEBUG] parse: Processing as individual key command(s).")
    local add, clr = 0, 0
    for tok in line:gmatch("%S+") do
+      console:log("[DEBUG] parse: Processing token: '" .. tok .. "'")
       local op,name = tok:match("^([%+%-]?)(.+)$")
       name = canonical(name)
       if not KEY_MASK[name] then
+         console:log("[DEBUG] parse: Unknown key name: '" .. name .. "' from token '" .. tok .. "'")
          return nil, "Unknown key "..tok
       end
       if op == "-" then
+         console:log("[DEBUG] parse: Clearing key '" .. name .. "' (Mask: " .. KEY_MASK[name] .. ")")
          clr = clr | KEY_MASK[name]
-         hold[name] = nil
-      else
+         if hold[name] then
+            console:log("[DEBUG] parse: Removing key '" .. name .. "' from hold table.")
+            hold[name] = nil
+         end
+      else -- '+' or no prefix means add
+         console:log("[DEBUG] parse: Adding key '" .. name .. "' (Mask: " .. KEY_MASK[name] .. ")")
          add = add | KEY_MASK[name]
+         console:log("[DEBUG] parse: Adding key '" .. name .. "' to hold table for " .. HOLD_FRAMES .. " frames.")
          hold[name] = HOLD_FRAMES
       end
    end
-   if add ~= 0 then emu:addKeys(add) end
-   if clr ~= 0 then emu:clearKeys(clr) end
 
-   -- nothing matched: report unknown command
-   --sock:send("ERR unknown command " ..line.."\n")
+   if add ~= 0 then
+      console:log("[DEBUG] parse: Applying add mask: " .. add)
+      emu:addKeys(add)
+   end
+   if clr ~= 0 then
+      console:log("[DEBUG] parse: Applying clear mask: " .. clr)
+      emu:clearKeys(clr)
+   end
+   console:log("[DEBUG] parse: Finished processing keys. Current hold: " .. table_to_string(hold))
+   return -- Successfully processed keys
 end
 
 --------------------------------------------------------------------------
@@ -250,27 +368,39 @@ end
 --------------------------------------------------------------------------
 local function onRecv(id)
    local s = clients[id]
+   if not s then
+       console:log("[DEBUG] onRecv: Called for non-existent client ID " .. id)
+       return
+   end
+   console:log("[DEBUG] onRecv: Checking for data from socket " .. id)
    while true do
       local line, err_msg = s:receive(4096)
       if not line then
-         if err_msg ~= socket.ERRORS.AGAIN then err(id, err_msg); stop(id) end
-         return
+         if err_msg ~= socket.ERRORS.AGAIN then
+            err(id, "Receive error: " .. tostring(err_msg))
+            stop(id)
+         else
+         end
+         return -- Exit loop if no data or error occurred
       end
 
+      console:log("[DEBUG] onRecv: Received " .. #line .. " bytes from socket " .. id .. ": '" .. line:gsub("[\r\n]+$", "") .. "'") -- Show received line minus trailing newline
+
       -- protect parse() from any runtime error
-      local ok, perr = pcall(parse, line, s)
+      local ok, perr = pcall(parse, line, s, id)
       if not ok then
-         err(id, "parse exception: "..tostring(perr))
-         s:send("ERR parse exception\n")
-      elseif perr then
-         err(id, perr)
-         s:send("ERR "..perr.."\n")
+         err(id, "parse internal exception: "..tostring(perr))
+         pcall(s.send, s, "ERR parse internal exception\n") -- Protect send as well
+      elseif perr then -- parse returned an error message
+         err(id, "Parse error: " .. perr)
+         pcall(s.send, s, "ERR "..perr.."\n") -- Protect send
+      else
       end
    end
 end
 
 local function onError(id, e)
-   err(id, e)
+   err(id, "Socket error event: " .. tostring(e))
    stop(id)
 end
 
@@ -278,12 +408,18 @@ end
 --  ACCEPT NEW CLIENTS -----------------------------------------------------
 --------------------------------------------------------------------------
 local function onAccept()
+   console:log("[DEBUG] onAccept: Checking for new connection...")
    local s,e = server:accept()
-   if e then err("accept", e); return end
+   if not s then
+       if e and e ~= socket.ERRORS.AGAIN then
+           err("accept", "Failed to accept new connection: " .. tostring(e))
+       end
+       return -- No connection pending or error occurred
+   end
    local id = nextID; nextID = id + 1
    clients[id] = s
    s:add("received", function() onRecv(id) end)
-   s:add("error",    function() onError(id) end)
+   s:add("error",    function(errMsg) onError(id, errMsg) end) -- Pass error message
    log(id, "connected")
 end
 
@@ -291,19 +427,36 @@ end
 --  START LISTENING --------------------------------------------------------
 --------------------------------------------------------------------------
 local function listen(port)
+   console:log("[DEBUG] listen: Attempting to bind server...")
    while true do
-      server, err = socket.bind(nil, port)
+      server, bind_err = socket.bind(nil, port) -- Use local var for error
       if not server then
-         if err == socket.ERRORS.ADDRESS_IN_USE then
+         if bind_err == socket.ERRORS.ADDRESS_IN_USE then
+            console:log("[INFO ] listen: Port " .. port .. " in use, trying next...")
             port = port + 1
-         else err("bind", err); return end
+         else
+            err("bind", "Failed to bind to any port: " .. tostring(bind_err))
+            return -- Fatal error
+         end
       else
-         local ok,e = server:listen()
-         if ok then break else err("listen", e); return end
+         local ok, listen_err = server:listen()
+         if ok then
+             console:log("[INFO ] listen: Server socket created.")
+             break -- Successfully bound and listening
+         else
+             err("listen", "Failed to listen on port " .. port .. ": " .. tostring(listen_err))
+             server:close() -- Close the failed server socket
+             server = nil
+             return -- Fatal error
+         end
       end
    end
-   console:log("Lua socket server listening on "..port)
+   console:log("[INFO ] Lua socket server listening on port "..port)
    server:add("received", onAccept)
+   console:log("[DEBUG] listen: Added accept handler. Ready for connections.")
 end
 
+-- Script entry point
+console:log("[INFO ] mGBA Socket Server Script Starting...")
 listen(LISTEN_PORT)
+console:log("[INFO ] mGBA Socket Server Script Initialized.")
