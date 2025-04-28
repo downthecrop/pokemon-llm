@@ -21,7 +21,7 @@ log = logging.getLogger('llmdriver')
 ACTION_RE = re.compile(r'^[LRUDABS](?:;[LRUDABS])*(?:;)?$')
 ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE)
 STREAM_TIMEOUT = 30
-CLEANUP_WINDOW = 15
+CLEANUP_WINDOW = 5
 IMAGE_TOKEN_COST_HIGH_DETAIL = 258
 IMAGE_TOKEN_COST_LOW_DETAIL = 85
 SCREENSHOT_PATH = "latest.png"
@@ -91,49 +91,47 @@ def build_system_prompt(actionSummary: str) -> str:
 
         Your previous actions summary: {truncated_summary}
 
+        General Instructions:
 
-        Instructions:
-
-        If given the option to continue or start a new game, always choose to continue.
+        - If given the option to continue or start a new game, always choose to continue.
+        - Speak in the first person as if you were the player. You don't see a screenshots or the screen, you see your surroundings.
+        - Do not call it a screenshot or the screen. It's your world.
 
         1. Analyze the Game State:
         - Examine the screenshot provided in the game state.
-        - Check the minimap (if available) to understand your position in the broader game world.
-        - Identify your character's position, nearby terrain, objects, and NPCs.
+        - Check the minimap (if available) to understand your position in the broader game world and the walkability of the terrain.
+        - Identify nearby terrain, objects, and NPCs.
         - Use the grid system to determine relative positions. Your character is always at [4,4] on the screen grid (bottom left cell is [0,0]).
-        - List out all visible objects, NPCs, and terrain features in the screenshot.
+        - List out all visible objects, NPCs, and terrain features in the screenshot. Translate them to world coordinates (based on your position).
         - Print any text that appears in the screenshot, including dialogue boxes, signs, or other text.
-        - Explicitly state your current location based on the minimap.
         - The screenshot is the most accurate representation of the game state. Not the minimap or chat context.
 
         2. Plan Your Actions:
         - Consider your current goals in the game (e.g., reaching a specific location, interacting with an NPC, progressing the story).
-        - List out the next 3-5 immediate goals or objectives.
-        - Plan a route to your next destination using both the screenshot and minimap.
-        - Create a step-by-step plan for your next few actions.
         - Ensure your planned actions don't involve walking into walls, fences, trees, or other obstacles.
 
         3. Navigation and Interaction:
         - Movement is always relative to the screen space: U (up), D (down), L (left), R (right).
+        - WALKABLE gridspaces on the minimap are WHITE, NONWALKABLE are (BLACK).
         - To interact with objects or NPCs, move directly beside them (no diagonal interactions) and press A.
         - Align yourself properly with doors and stairs before attempting to use them.
-        - Remember that you can't move through walls or objects, even if the minimap shows a walkable tile.
+        - Remember that you can't move through walls or objects.
         - You can only pass ledges by moving DOWN, never UP.
         - If you repeartedly try the same action and it fails, explore other options.
+        - When in a city, orange areas on the minimap idenify buildings you can enter.
+        - Use the screenshot to ensure your planned actions are not blocked. Verify with the minimap that your path is walkable.
+        - You must be perfectly aligned on the grid with orange minimap tiles to enter/exit buildings. Diagonally adjacent is not enough.
         - Exits, stairs, and ladders are ALWAYS marked by a unique tile type.
-        - Explore rooms before trying to exit them.
-        - If you cannot find the exit, navigate around the room to find unique looking that could indicate the exit.
-        - If you want to leave a building or room you must find the unique exit tile.
         - You cannot move when an interface is open, you must close or complete the interaction it first.
+        - If you want to leave a building or room you must find the unique exit tile (marked in orange on the minimap).
         - Orange tiles on the minimap are exits, stairs, and ladders. If you are not on an orange tile, you cannot exit the room.
-
+        - Stairs, Doors and Ladders do not require 'A' to interact. You simply walk into them.
 
         4. Menu Navigation:
-        - Press S to open the menu.
+        - Press S to open the pause menu.
         - Use U/D/L/R to move the selection cursor, A to confirm, and B to cancel or go back.
 
         5. Command Chaining:
-        - You may chain commands using semicolons (e.g., R;R;R;A;).
         - It's better to chain multiple commands together than to send them one at a time.
         - Always end your command chain with a semicolon.
 
@@ -154,15 +152,13 @@ def build_system_prompt(actionSummary: str) -> str:
         [Your detailed analysis and planning goes here]
         </game_analysis>
 
-        {{"action":"U;U;R;A;"}}
+        {{"action":"U;R;R;D;"}}
 
 
         Remember:
-        - Always use both the screenshot and minimap for navigation.
+        - Always use both the screenshot and minimap for navigation is available.
         - Be careful to align properly with doors and entrances/exits.
-        - Avoid repeatedly walking into walls or obstacles.
-        - If an action yields no result, try a different approach.
-        - Explain your higher-level thinking process and current goals in your reasoning.
+        - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
 
@@ -285,8 +281,10 @@ def summarize_and_reset():
 
 
 
-def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tuple[str | None, str | None]:
+def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     global response_count, tokens_used_session
+
+    did_cleanup = False
 
     payload = copy.deepcopy(state_data)
     screenshot = payload.pop("screenshot", None)
@@ -376,6 +374,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
         log.info(f"Response count: {response_count}/{CLEANUP_WINDOW}")
         if response_count >= CLEANUP_WINDOW:
             summarize_and_reset()
+            did_cleanup = True
 
 
         analysis_match = ANALYSIS_RE.search(full_output)
@@ -429,14 +428,13 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT) -> tupl
     if action is None:
          log.error("Failed to extract a valid action from LLM response.")
 
-    return action, analysis_text
+    return action, analysis_text, did_cleanup
 
 
 
 def encode_image_base64(image_path: str) -> str | None:
     """Reads an image file and returns its base64 encoded string."""
     if not os.path.exists(image_path) or os.path.getsize(image_path) == 0:
-
         return None
     try:
         with open(image_path, "rb") as f:
@@ -457,6 +455,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         log.info(f"--- Loop Cycle {current_cycle} ---")
         update_payload = {}
         action_payload = {}
+        did_cleanup_payload = {}
 
 
         try:
@@ -546,7 +545,15 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
         llm_call_start = time.time()
 
-        action, game_analysis = llm_stream_action(llm_input_state)
+        log_id_counter = state.get("log_id_counter", 0) + 1
+        state["log_id_counter"] = log_id_counter
+
+        action, game_analysis, did_cleanup = llm_stream_action(llm_input_state)
+
+        if did_cleanup:
+            did_cleanup_payload["log_entry"] = { "id": log_id_counter, "text": "🔎 Chat history cleaned up." }
+            await broadcast_func(did_cleanup_payload)
+
         log.debug(f"LLM call finished (took {time.time() - llm_call_start:.2f}s).")
 
 
@@ -569,7 +576,6 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         else:
             log.error("No valid action from LLM. Cannot send command.")
 
-
         action_count = current_cycle
         if state.get('actions') != action_count:
              state['actions'] = action_count
@@ -590,19 +596,15 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             update_payload['modelName'] = MODEL
 
 
-        log_id_counter = state.get("log_id_counter", 0) + 1
-        state["log_id_counter"] = log_id_counter
 
+        analysis_log_part = f"{game_analysis.strip()}\n" if game_analysis and game_analysis.strip() else None
 
-        analysis_log_part = f"{game_analysis.strip()}\n" if game_analysis and game_analysis.strip() else "\n\n(No game analysis provided)"
-        log_text = f"{log_action_text}"
-
-        update_payload["log_entry"] = { "id": log_id_counter, "text": analysis_log_part }
-        action_payload["log_entry"] = { "id": log_id_counter, "text": log_text }
+        if analysis_log_part:
+            update_payload["log_entry"] = { "id": log_id_counter, "text": analysis_log_part }
+        if action:
+            action_payload["log_entry"] = { "id": log_id_counter, "text": log_action_text }
 
         log.info(f"Log Entry #{log_id_counter}: {log_action_text} (Analysis included in state log)")
-
-
 
         if update_payload:
             log.debug(f"Broadcasting {len(update_payload)} state updates: {list(update_payload.keys())}")

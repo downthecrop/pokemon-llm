@@ -167,11 +167,6 @@ def start_mgba_with_scripting(rom_path=None, port=PORT):
             sock = socket.create_connection(('localhost', port), timeout=2)
             sock.setblocking(True) # Keep blocking for simplicity here
             log.info(f"Connected to mGBA scripting server on port {port}")
-            # Send a PING to verify connection? Optional.
-            # sock.sendall(b'PING\n')
-            # response = sock.recv(1024)
-            # if response.strip() == b'PONG': log.info("mGBA script responded.")
-            # else: raise ConnectionRefusedError("Unexpected response from script")
             return proc, sock
         except (ConnectionRefusedError, socket.timeout) as e:
             log.warning(f"Connection attempt failed: {e}. Retrying...")

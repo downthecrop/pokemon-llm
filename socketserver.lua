@@ -47,19 +47,6 @@ local function table_to_string(tbl)
 end
 
 --------------------------------------------------------------------------
---  UTILITY: READ PLAYER POS (GEN1) --------------------------------------
---------------------------------------------------------------------------
-local function getPlayerPos()
-   local bx = emu:readRange(0xD362, 1)
-   local by = emu:readRange(0xD361, 1)
-   if not bx or not by then
-      return nil, nil
-   end
-   local x, y = string.byte(bx, 1), string.byte(by, 1)
-   return x, y
-end
-
---------------------------------------------------------------------------
 --  UTILITY: CHECK INTERFACE STATES (GEN1) -------------------------------
 -- menu: CC51–CC52, battle: CCD5, conversation: CC00
 --------------------------------------------------------------------------
@@ -161,7 +148,6 @@ local function stepAutoRelease()
          local i = inputQueue.idx
 
          if i <= #inputQueue.tokens then
-            inputQueue.prevX, inputQueue.prevY = getPlayerPos()
             local key = inputQueue.tokens[i]
             console:log("[DEBUG] stepAutoRelease: Queue executing index " .. i .. ", token: '" .. key .. "' (Mask: " .. KEY_MASK[key] .. ")")
             emu:addKeys(KEY_MASK[key])
@@ -174,8 +160,7 @@ local function stepAutoRelease()
             console:log("[DEBUG] stepAutoRelease: Input queue finished processing all tokens.")
             local sock = inputQueue.sock
             if sock and clients[inputQueue.sockId] then -- Check if socket is still valid
-               console:log("[DEBUG] stepAutoRelease: Sending QUEUE_COMPLETE to client " .. inputQueue.sockId)
-               sock:send("QUEUE_COMPLETE\n")
+               --sock:send("QUEUE_COMPLETE\n")
             else
                console:log("[DEBUG] stepAutoRelease: Queue finished, but client socket " .. (inputQueue.sockId or "??") .. " is no longer valid. Cannot send QUEUE_COMPLETE.")
             end
@@ -281,15 +266,12 @@ local function parse(line, sock, sockId)
       end
       if #toks > 0 then -- Allow single-item queues if needed, though maybe less useful
          console:log("[DEBUG] parse: Setting up input queue with " .. #toks .. " tokens.")
-         local px, py = getPlayerPos()
          inputQueue = {
             tokens          = toks,
             idx             = 1,
             framesUntilNext = 0, -- Start immediately
             sock            = sock,
             sockId          = sockId, -- Store ID for logging/checking later
-            prevX           = px,
-            prevY           = py,
          }
          console:log("[DEBUG] parse: Input queue created: " .. table_to_string(inputQueue)) -- Note: sock won't print nicely
          return

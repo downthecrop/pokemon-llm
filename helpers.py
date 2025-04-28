@@ -4,6 +4,7 @@ import pathlib
 import os
 from PIL import Image, ImageDraw
 from dump import find_path, dump_minimal_map
+import time
 
 DEFAULT_ROM = 'c.gbc'
 
@@ -115,17 +116,6 @@ def get_state(sock) -> str:
     _flush_socket(sock)
     return send_command(sock, "state")
 
-
-def get_species_map():
-    # TODO: implement species map loading
-    raise NotImplementedError
-
-
-def decode_pokemon_text(raw: bytes) -> str:
-    # TODO: implement text decoding
-    raise NotImplementedError
-
-
 def get_party_text(sock) -> str:
     _flush_socket(sock)
     party = []
@@ -136,7 +126,6 @@ def get_party_text(sock) -> str:
         lines.append("Your party is empty.")
     else:
         lines.append(f"You have {count} Pokémon in your party:")
-        from helpers import get_species_map, decode_pokemon_text
         species_map = get_species_map()
         for slot in range(count):
             data_addr = 0xD163 + 0x08 + slot * 44
@@ -209,7 +198,7 @@ def get_location(sock) -> tuple[int, int, int, str] | None:
 def prep_llm(sock) -> dict:
     _flush_socket(sock)
     capture(sock, "latest.png")
-    print("Finished capturing latest.png")
+    time.sleep(0.1)
     loc = get_location(sock)
     mid = None
 
@@ -339,12 +328,12 @@ def get_species_map():
         0x03: (32, "Nidoran♂", "Poison", None),
         0xA7: (33, "Nidorino", "Poison", None),
         0x07: (34, "Nidoking", "Poison", "Ground"),
-        0x04: (35, "Clefairy", "Normal", None), # Note: Fairy type added later
-        0x8E: (36, "Clefable", "Normal", None), # Note: Fairy type added later
+        0x04: (35, "Clefairy", "Normal", None),
+        0x8E: (36, "Clefable", "Normal", None),
         0x52: (37, "Vulpix", "Fire", None),
         0x53: (38, "Ninetales", "Fire", None),
-        0x64: (39, "Jigglypuff", "Normal", None), # Note: Fairy type added later
-        0x65: (40, "Wigglytuff", "Normal", None), # Note: Fairy type added later
+        0x64: (39, "Jigglypuff", "Normal", None),
+        0x65: (40, "Wigglytuff", "Normal", None),
         0x6B: (41, "Zubat", "Poison", "Flying"),
         0x82: (42, "Golbat", "Poison", "Flying"),
         0xB9: (43, "Oddish", "Grass", "Poison"),
@@ -385,8 +374,8 @@ def get_species_map():
         0xA4: (78, "Rapidash", "Fire", None),
         0x25: (79, "Slowpoke", "Water", "Psychic"),
         0x08: (80, "Slowbro", "Water", "Psychic"),
-        0xAD: (81, "Magnemite", "Electric", None), # Note: Steel type added later
-        0x36: (82, "Magneton", "Electric", None), # Note: Steel type added later
+        0xAD: (81, "Magnemite", "Electric", None),
+        0x36: (82, "Magneton", "Electric", None),
         0x40: (83, "Farfetch'd", "Normal", "Flying"),
         0x46: (84, "Doduo", "Normal", "Flying"),
         0x74: (85, "Dodrio", "Normal", "Flying"),
@@ -426,7 +415,7 @@ def get_species_map():
         0x9E: (119, "Seaking", "Water", None),
         0x1B: (120, "Staryu", "Water", None),
         0x98: (121, "Starmie", "Water", "Psychic"),
-        0x2A: (122, "Mr. Mime", "Psychic", None), # Note: Fairy type added later
+        0x2A: (122, "Mr. Mime", "Psychic", None),
         0x1A: (123, "Scyther", "Bug", "Flying"),
         0x48: (124, "Jynx", "Ice", "Psychic"),
         0x35: (125, "Electabuzz", "Electric", None),
