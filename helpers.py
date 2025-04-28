@@ -128,6 +128,7 @@ def decode_pokemon_text(raw: bytes) -> str:
 
 def get_party_text(sock) -> str:
     _flush_socket(sock)
+    party = []
     header = readrange(sock, "0xD163", "8")
     count = header[0]
     lines: list[str] = []
@@ -161,11 +162,9 @@ def get_party_text(sock) -> str:
                 types += f"/{type2}"
 
             label = f"#{dex_no:03} {mon_name}" if dex_no else mon_name
-            lines.append(
-                f" • Slot {slot+1}: {label} — Types: {types} — "
-                f"'{nickname}', lvl {level}, HP {hp_cur}/{hp_max}"
-            )
-    return "\n".join(lines)
+            mon = {"name": mon_name, "level": level, "type": type1, "hp": hp_cur, "maxHp": hp_max, "nickname": nickname}
+            party.append(mon)
+    return party
 
 
 def get_badges_text(sock) -> str:
@@ -174,7 +173,7 @@ def get_badges_text(sock) -> str:
     flags = raw[0]
     names = ["Boulder","Cascade","Thunder","Rainbow","Soul","Marsh","Volcano","Earth"]
     have = [names[i] for i in range(8) if flags & (1 << i)]
-    return (", ".join(have) if have else "none")
+    return have
 
 
 def get_facing(sock) -> str:
@@ -212,6 +211,7 @@ def prep_llm(sock) -> dict:
     capture(sock, "latest.png")
     print("Finished capturing latest.png")
     loc = get_location(sock)
+    mid = None
 
     if loc:
         mid, x, y, facing = loc
@@ -225,7 +225,7 @@ def prep_llm(sock) -> dict:
 
     return {
         "party":   get_party_text(sock),
-        #"state":   get_state(sock),
+        "map_id": mid,
         "badges":  get_badges_text(sock),
         "position": position,
         "facing":  facing,

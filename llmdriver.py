@@ -125,6 +125,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - If you cannot find the exit, navigate around the room to find unique looking that could indicate the exit.
         - If you want to leave a building or room you must find the unique exit tile.
         - You cannot move when an interface is open, you must close or complete the interaction it first.
+        - Orange tiles on the minimap are exits, stairs, and ladders. If you are not on an orange tile, you cannot exit the room.
 
 
         4. Menu Navigation:
