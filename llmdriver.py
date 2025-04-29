@@ -32,6 +32,7 @@ load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 MODE = "GEMINI" # OPENAI or GEMINI
+IMAGE_DETAIL = "low" # high or low
 
 client = None
 MODEL = None
@@ -146,13 +147,15 @@ def build_system_prompt(actionSummary: str) -> str:
         7. Output Format:
         After your analysis, on a new line, provide a single line JSON object with the "action" property containing your chosen command or command chain.
 
-        Example output structure:
+        Example output structure (ALWAYS match this format):
 
+        "
         <game_analysis>
         [Your detailed analysis and planning goes here]
         </game_analysis>
 
         {{"action":"U;R;R;D;"}}
+        "
 
 
         Remember:
@@ -301,10 +304,8 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
 
     if screenshot and isinstance(screenshot.get("image_url"), dict):
         image_parts_for_api.append({"type": "image_url", "image_url": screenshot["image_url"]})
-        image_placeholders_for_history.append({"type": "text", "text": "[Screenshot Placeholder]"})
     if minimap and isinstance(minimap.get("image_url"), dict):
         image_parts_for_api.append({"type": "image_url", "image_url": minimap["image_url"]})
-        image_placeholders_for_history.append({"type": "text", "text": "[Minimap Placeholder]"})
 
     current_content.extend(image_parts_for_api)
     current_user_message_api = {"role": "user", "content": current_content}
@@ -453,10 +454,10 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         loop_start_time = time.time()
         current_cycle = action_count + 1
         log.info(f"--- Loop Cycle {current_cycle} ---")
+
         update_payload = {}
         action_payload = {}
         did_cleanup_payload = {}
-
 
         try:
             log.debug("Requesting game state from mGBA...")
@@ -534,11 +535,11 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
         b64_ss = encode_image_base64(SCREENSHOT_PATH)
-        if b64_ss: llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": "high"}}
+        if b64_ss: llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": IMAGE_DETAIL}}
         else: llm_input_state["screenshot"] = None
 
         b64_mm = encode_image_base64(MINIMAP_PATH)
-        if b64_mm: llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": "high"}}
+        if b64_mm: llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": IMAGE_DETAIL}}
         else: llm_input_state["minimap"] = None
         log.debug(f"Pre-LLM state update & image prep took {time.time() - state_update_start:.2f}s. SS:{bool(b64_ss)}, MM:{bool(b64_mm)}")
 
