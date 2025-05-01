@@ -31,7 +31,7 @@ MINIMAP_PATH = "minimap.png"
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-MODE = "GEMINI" # OPENAI or GEMINI
+MODE = "OLLAMA" # OPENAI or GEMINI
 IMAGE_DETAIL = "low" # high or low
 
 client = None
@@ -52,9 +52,15 @@ elif MODE == "GEMINI":
         api_key=GEMINI_KEY,
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
     )
-
     MODEL = "gemini-2.5-flash-preview-04-17"
     log.info(f"Using Gemini Mode (via OpenAI client). Model: {MODEL}")
+
+elif MODE == "OLLAMA":
+    client = OpenAI(
+    base_url='http://localhost:11434/v1/',
+    api_key='ollama',
+    )
+    MODEL = "gemma3:4b-it-qat"
 else:
     log.error(f"Invalid MODE selected: {MODE}")
     raise ValueError(f"Invalid MODE: {MODE}")
@@ -118,7 +124,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - Align yourself properly with doors and stairs before attempting to use them.
         - Remember that you can't move through walls or objects.
         - You can only pass ledges by moving DOWN, never UP.
-        - If you repeartedly try the same action and it fails, explore other options.
+        - If you repeartedly try the same action and it fails (your position remain the same), explore other options, like moving around the object blocking you.
         - When in a city, orange areas on the minimap idenify buildings you can enter.
         - Use the screenshot to ensure your planned actions are not blocked. Verify with the minimap that your path is walkable.
         - You must be perfectly aligned on the grid with orange minimap tiles to enter/exit buildings. Diagonally adjacent is not enough.
@@ -319,6 +325,8 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     action = None
     analysis_text = None
     call_output_tokens = 0
+
+    print(str(messages_for_api))
 
     try:
         response = client.chat.completions.create(
