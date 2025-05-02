@@ -31,7 +31,7 @@ MINIMAP_PATH = "minimap.png"
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-MODE = "OLLAMA" # OPENAI or GEMINI
+MODE = "LMSTUDIO" # OPENAI or GEMINI
 IMAGE_DETAIL = "low" # high or low
 
 client = None
@@ -58,9 +58,15 @@ elif MODE == "GEMINI":
 elif MODE == "OLLAMA":
     client = OpenAI(
     base_url='http://localhost:11434/v1/',
-    api_key='ollama',
+    api_key='ollama', # required but can be anything
     )
-    MODEL = "gemma3:4b-it-qat"
+    MODEL = "llama3.2-vision:11b"
+elif MODE == "LMSTUDIO":
+    client = OpenAI(
+    base_url='http://localhost:1234/v1/',
+    api_key='ollama', # required but can be anything
+    )
+    MODEL = "amoral-fallen-omega-gemma3-12b-mlx"
 else:
     log.error(f"Invalid MODE selected: {MODE}")
     raise ValueError(f"Invalid MODE: {MODE}")
@@ -87,16 +93,10 @@ def count_tokens(text: str) -> int:
 
 def build_system_prompt(actionSummary: str) -> str:
     """Constructs the system prompt for the LLM, including the chat history summary."""
-    summary_limit = 1500
-    truncated_summary = actionSummary
-    if len(actionSummary) > summary_limit:
-        truncated_summary = actionSummary[:summary_limit] + "... (truncated)"
-        log.warning(f"Action summary truncated for system prompt (>{summary_limit} chars).")
-
     return f"""
         You are an AI agent designed to play Pokémon Red. Your task is to analyze the game state, plan your actions, and provide input commands to progress through the game.
 
-        Your previous actions summary: {truncated_summary}
+        Your previous actions summary: {actionSummary}
 
         General Instructions:
 
@@ -167,6 +167,7 @@ def build_system_prompt(actionSummary: str) -> str:
         Remember:
         - Always use both the screenshot and minimap for navigation is available.
         - Be careful to align properly with doors and entrances/exits.
+        - Do NOT wrap your json in ```json ```, just print the raw object {{"action":"...;"}}
         - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
@@ -332,6 +333,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
         response = client.chat.completions.create(
             model=MODEL,
             messages=messages_for_api,
+            reasoning_effort="low",
             temperature=1.0,
             max_tokens=2048,
             stream=True
