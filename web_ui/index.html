@@ -244,7 +244,7 @@
                 updateMinimap() {
                     // Force browser to re-fetch by adding a changing query parameter (cache buster)
                     // console.log('Polling minimap...'); // Optional: for debugging
-                    this.minimapSrc = `minimap.png?t=${Date.now()}`;
+                    this.minimapSrc = `../minimap.png?t=${Date.now()}`;
                     // Visibility is handled by the load/error events below
                 },
                 handleMinimapLoad() {

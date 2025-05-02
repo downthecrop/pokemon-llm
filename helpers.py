@@ -1,7 +1,6 @@
 # helpers.py (GEN 1)
 import struct
 import pathlib
-import os
 from PIL import Image, ImageDraw
 from dump import find_path, dump_minimal_map
 import time

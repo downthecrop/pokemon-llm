@@ -10,9 +10,9 @@ import tiktoken
 import socket
 import re
 
-from openai import OpenAI, APIError
-from dotenv import load_dotenv
 from helpers import prep_llm
+from prompts import build_system_prompt, get_summary_prompt
+from client_setup import setup_llm_client # Import the new setup function
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -27,50 +27,12 @@ IMAGE_TOKEN_COST_LOW_DETAIL = 85
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
-
-load_dotenv()
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-MODE = "LMSTUDIO" # OPENAI or GEMINI
-IMAGE_DETAIL = "low" # high or low
-
-client = None
-MODEL = None
-
-if MODE == "OPENAI":
-    if not OPENAI_KEY:
-        log.error("MODE is OPENAI but OPENAI_API_KEY not found in environment variables.")
-        raise ValueError("Missing OpenAI API Key")
-    client = OpenAI(api_key=OPENAI_KEY)
-    MODEL = "gpt-4.1-nano"
-    log.info(f"Using OpenAI Mode. Model: {MODEL}")
-elif MODE == "GEMINI":
-    if not GEMINI_KEY:
-        log.error("MODE is GEMINI but GEMINI_API_KEY not found in environment variables.")
-        raise ValueError("Missing Gemini API Key")
-    client = OpenAI(
-        api_key=GEMINI_KEY,
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-    )
-    MODEL = "gemini-2.5-flash-preview-04-17"
-    log.info(f"Using Gemini Mode (via OpenAI client). Model: {MODEL}")
-
-elif MODE == "OLLAMA":
-    client = OpenAI(
-    base_url='http://localhost:11434/v1/',
-    api_key='ollama', # required but can be anything
-    )
-    MODEL = "llama3.2-vision:11b"
-elif MODE == "LMSTUDIO":
-    client = OpenAI(
-    base_url='http://localhost:1234/v1/',
-    api_key='ollama', # required but can be anything
-    )
-    MODEL = "amoral-fallen-omega-gemma3-12b-mlx"
-else:
-    log.error(f"Invalid MODE selected: {MODE}")
-    raise ValueError(f"Invalid MODE: {MODE}")
-
+client, MODEL, IMAGE_DETAIL = setup_llm_client()
+chat_history = [{"role": "system", "content": build_system_prompt("")}]
+response_count = 0
+action_count = 0
+tokens_used_session = 0
+start_time = datetime.datetime.now()
 
 try:
     encoding = tiktoken.get_encoding("cl100k_base")
@@ -89,99 +51,6 @@ def count_tokens(text: str) -> int:
     except Exception as e:
         log.warning(f"Tiktoken encoding failed (len {len(text)}): {e}. Using fallback.")
         return len(text) // 4
-
-
-def build_system_prompt(actionSummary: str) -> str:
-    """Constructs the system prompt for the LLM, including the chat history summary."""
-    return f"""
-        You are an AI agent designed to play Pokémon Red. Your task is to analyze the game state, plan your actions, and provide input commands to progress through the game.
-
-        Your previous actions summary: {actionSummary}
-
-        General Instructions:
-
-        - If given the option to continue or start a new game, always choose to continue.
-        - Speak in the first person as if you were the player. You don't see a screenshots or the screen, you see your surroundings.
-        - Do not call it a screenshot or the screen. It's your world.
-
-        1. Analyze the Game State:
-        - Examine the screenshot provided in the game state.
-        - Check the minimap (if available) to understand your position in the broader game world and the walkability of the terrain.
-        - Identify nearby terrain, objects, and NPCs.
-        - Use the grid system to determine relative positions. Your character is always at [4,4] on the screen grid (bottom left cell is [0,0]).
-        - List out all visible objects, NPCs, and terrain features in the screenshot. Translate them to world coordinates (based on your position).
-        - Print any text that appears in the screenshot, including dialogue boxes, signs, or other text.
-        - The screenshot is the most accurate representation of the game state. Not the minimap or chat context.
-
-        2. Plan Your Actions:
-        - Consider your current goals in the game (e.g., reaching a specific location, interacting with an NPC, progressing the story).
-        - Ensure your planned actions don't involve walking into walls, fences, trees, or other obstacles.
-
-        3. Navigation and Interaction:
-        - Movement is always relative to the screen space: U (up), D (down), L (left), R (right).
-        - WALKABLE gridspaces on the minimap are WHITE, NONWALKABLE are (BLACK).
-        - To interact with objects or NPCs, move directly beside them (no diagonal interactions) and press A.
-        - Align yourself properly with doors and stairs before attempting to use them.
-        - Remember that you can't move through walls or objects.
-        - You can only pass ledges by moving DOWN, never UP.
-        - If you repeartedly try the same action and it fails (your position remain the same), explore other options, like moving around the object blocking you.
-        - When in a city, orange areas on the minimap idenify buildings you can enter.
-        - Use the screenshot to ensure your planned actions are not blocked. Verify with the minimap that your path is walkable.
-        - You must be perfectly aligned on the grid with orange minimap tiles to enter/exit buildings. Diagonally adjacent is not enough.
-        - Exits, stairs, and ladders are ALWAYS marked by a unique tile type.
-        - You cannot move when an interface is open, you must close or complete the interaction it first.
-        - If you want to leave a building or room you must find the unique exit tile (marked in orange on the minimap).
-        - Orange tiles on the minimap are exits, stairs, and ladders. If you are not on an orange tile, you cannot exit the room.
-        - Stairs, Doors and Ladders do not require 'A' to interact. You simply walk into them.
-
-        4. Menu Navigation:
-        - Press S to open the pause menu.
-        - Use U/D/L/R to move the selection cursor, A to confirm, and B to cancel or go back.
-
-        5. Command Chaining:
-        - It's better to chain multiple commands together than to send them one at a time.
-        - Always end your command chain with a semicolon.
-
-        6. Reasoning Process:
-        Wrap your analysis and planning inside <game_analysis> tags in your thinking block, including:
-        - Your understanding of the current game state
-        - Your immediate and long-term goals
-        - The rationale behind your chosen actions
-        - How you're using the screenshot and minimap to navigate
-        - Any potential obstacles or challenges you foresee
-
-        7. Output Format:
-        After your analysis, on a new line, provide a single line JSON object with the "action" property containing your chosen command or command chain.
-
-        Example output structure (ALWAYS match this format):
-
-        "
-        <game_analysis>
-        [Your detailed analysis and planning goes here]
-        </game_analysis>
-
-        {{"action":"U;R;R;D;"}}
-        "
-
-
-        Remember:
-        - Always use both the screenshot and minimap for navigation is available.
-        - Be careful to align properly with doors and entrances/exits.
-        - Do NOT wrap your json in ```json ```, just print the raw object {{"action":"...;"}}
-        - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
-
-        Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
-
-        Here is the current game state:
-        """
-
-
-chat_history = [{"role": "system", "content": build_system_prompt("")}]
-response_count = 0
-action_count = 0
-tokens_used_session = 0
-start_time = datetime.datetime.now()
-
 
 def cleanup_image_history():
     """Replaces image_url data with text placeholders in chat history."""
@@ -245,13 +114,7 @@ def summarize_and_reset():
         log.info("History reset to system prompt without summarization.")
         return
 
-    summary_prompt = """
-        You are a summarization engine. Condense the below conversation into a concise summary that explains the previous actions taken by the assistant player.
-        Focus on game progress, goals attempted, locations visited, and significant events.
-        Speak in first person ("I explored...", "I tried to go...", "I obtained...").
-        Be concise, ideally under 300 words. Avoid listing every single button press.
-        Do not include any JSON code like {"action": ...}. Output only the summary text.
-    """
+    summary_prompt = get_summary_prompt()
     summary_input_messages = [{"role": "system", "content": summary_prompt}] + history_for_summary
 
     summary_input_tokens = calculate_prompt_tokens(summary_input_messages)
@@ -278,8 +141,6 @@ def summarize_and_reset():
         tokens_used_session += total_summary_tokens
         log.info(f"Summarization call used approx. {total_summary_tokens} tokens. Session total: {tokens_used_session}")
 
-    except APIError as e:
-        log.error(f"API error during LLM summarization: {e}")
     except Exception as e:
         log.error(f"Error during LLM summarization call: {e}", exc_info=True)
 
@@ -426,11 +287,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
 
         except Exception as e:
             log.error(f"Error during action extraction: {e}", exc_info=True)
-
-    except APIError as e:
-        log.error(f"API error during LLM call: {e}")
-
-        return None, None
+            return None, None
     except Exception as e:
         log.error(f"Error during LLM API call/streaming: {e}", exc_info=True)
 
@@ -458,7 +315,6 @@ def encode_image_base64(image_path: str) -> str | None:
 async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0):
     """Main async loop: Get state, call LLM, send action, update/broadcast state."""
     global action_count, tokens_used_session, start_time
-    log.info(f"Starting async auto LLM loop (Interval: {interval}s). Mode: {MODE}, Model: {MODEL}")
 
     while True:
         loop_start_time = time.time()
