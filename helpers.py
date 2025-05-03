@@ -4,6 +4,7 @@ import pathlib
 from PIL import Image, ImageDraw
 from dump import find_path, dump_minimal_map
 import time
+import math
 
 DEFAULT_ROM = 'c.gbc'
 
@@ -110,6 +111,18 @@ def send_command(sock, cmd: str) -> str:
             break
     return data.decode('utf-8').rstrip("\n")
 
+def touch_controls_path_find(mapid, currentPos, screenCoords):
+    """
+    Translate the screentouch to worldspace and gets actions to navigate.
+    Player is always at [4,4] ([0,0] is lower left cell)
+    """
+    x = screenCoords[0] - 4
+    y = screenCoords[1] - 4
+    print(f"POS: {currentPos[0]},{currentPos[1]}, Translated: {x},{y}, Desination: {currentPos[0] + x},{currentPos[1] - y}")
+    destination = [max(currentPos[0] + x, 0), max(currentPos[1] - y, 0)]
+    actions = find_path(DEFAULT_ROM, mapid, currentPos, destination)
+    return actions # None if there is no valid path
+    
 
 def get_state(sock) -> str:
     _flush_socket(sock)
@@ -203,7 +216,7 @@ def prep_llm(sock) -> dict:
 
     if loc:
         mid, x, y, facing = loc
-        dump_minimal_map(DEFAULT_ROM, mid, (x, y), grid=True).save("minimap.png")
+        dump_minimal_map(DEFAULT_ROM, mid, (x, y), grid_lines=True).save("minimap.png")
         position = (x, y)
     else:
         # no map data or in battle → empty map

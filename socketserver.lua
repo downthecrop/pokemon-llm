@@ -160,7 +160,7 @@ local function stepAutoRelease()
             console:log("[DEBUG] stepAutoRelease: Input queue finished processing all tokens.")
             local sock = inputQueue.sock
             if sock and clients[inputQueue.sockId] then -- Check if socket is still valid
-               --sock:send("QUEUE_COMPLETE\n")
+               sock:send("QUEUE_COMPLETE\n")
             else
                console:log("[DEBUG] stepAutoRelease: Queue finished, but client socket " .. (inputQueue.sockId or "??") .. " is no longer valid. Cannot send QUEUE_COMPLETE.")
             end
