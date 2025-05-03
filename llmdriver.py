@@ -11,7 +11,7 @@ import socket
 import re
 import concurrent.futures
 
-from helpers import prep_llm, touch_controls_path_find
+from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client
 
@@ -114,7 +114,7 @@ def summarize_and_reset():
             model=MODEL,
             messages=summary_input_messages,
             temperature=0.7,
-            max_tokens=512,
+            max_tokens=2048,
         )
         if summary_resp.choices and summary_resp.choices[0].message.content:
             summary_text = summary_resp.choices[0].message.content.strip()
@@ -131,6 +131,11 @@ def summarize_and_reset():
     except Exception as e:
         log.error(f"Error during LLM summarization call: {e}", exc_info=True)
 
+    
+    json_object = parse_optional_fenced_json(summary_text)
+    if(json_object != None):
+        # Update the ui...
+        pass
 
     new_system_prompt_content = build_system_prompt(summary_text)
     chat_history = [{"role": "system", "content": new_system_prompt_content}]
@@ -251,6 +256,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
         if response_count >= CLEANUP_WINDOW:
             summarize_and_reset()
             did_cleanup = True
+            time.sleep(5)
 
         # extract analysis section
         match = ANALYSIS_RE.search(full_output)
@@ -347,7 +353,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         llm_input_state = copy.deepcopy(current_mGBA_state)
         state_update_start = time.time()
 
-        logging.info(f"History: {chat_history}")
+        #logging.info(f"History: {chat_history}")
 
 
         new_team = current_mGBA_state.get('party')

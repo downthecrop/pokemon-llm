@@ -11,6 +11,9 @@ def build_system_prompt(actionSummary: str) -> str:
         - Speak in the first person as if you were the player. You don't see a screenshots or the screen, you see your surroundings.
         - Do not call it a screenshot or the screen. It's your world.
 
+        - Available Actions:
+            - U,D,L,R,A,B,S
+
         1. Analyze the Game State:
         - Examine the screenshot provided in the game state.
         - Check the minimap (if available) to understand your position in the broader game world and the walkability of the terrain.
@@ -29,7 +32,7 @@ def build_system_prompt(actionSummary: str) -> str:
 
         3. Navigation and Interaction:
         - Movement is always relative to the screen space: U (up), D (down), L (left), R (right).
-        - WALKABLE gridspaces on the minimap are WHITE, NONWALKABLE are (BLACK).
+        - WALKABLE gridspaces on the minimap are WHITE, NONWALKABLE are (BLACK), check that the path you intend to follow is WHITE.
         - To interact with objects or NPCs, move directly beside them (no diagonal interactions) and press A.
         - Align yourself properly with doors and stairs before attempting to use them.
         - Remember that you can't move through walls or objects.
@@ -118,6 +121,27 @@ def get_summary_prompt():
         You are a summarization engine. Condense the below conversation into a concise summary that explains the previous actions taken by the assistant player.
         Focus on game progress, goals attempted, locations visited, and significant events.
         Speak in first person ("I explored...", "I tried to go...", "I obtained...").
-        Be concise, ideally under 300 words. Avoid listing every single button press.
-        Do not include any JSON code like {"action": ...}. Output only the summary text.
+        Be concise, ideally under 300 words. Avoid listing button presses.
+        Do not include JSON {"action": ...} or {"touch": ...} in your planning and summary
+
+        At the end of your summary you MUST include a JSON object with an updated list of goals.
+
+        {
+        "summary": "Your summary ideally under  300 words"
+        "primayGoal": "Two sentences MAXIMUM",
+        "secondaryGoal": "Two sentences MAXIMUM",
+        "tertiaryGoal": "Two sentences MAXIMUM",
+        "otherNotes": "3 Bulletpoints MAXIMUM"
+        }
+
+        Example results.
+        Summary: I have started the game and named my character...
+        Primay Goal: Leave my bedroom and aquire my first pokemon...
+        Secondary Goal: Speak to mom...
+        Tertiary Goal: Explore Pallet Town...
+        Other Notes: - I explored..., - I tried to go..., - I obtained...
+
+        Now construct your JSON result following the template. Your answer will be used for future planning.
+        Do NOT wrap your response in ```json ```, just return the raw JSON object.
+
         """
