@@ -356,30 +356,32 @@ local function onRecv(id)
    end
    console:log("[DEBUG] onRecv: Checking for data from socket " .. id)
    while true do
-      local line, err_msg = s:receive(4096)
-      if not line then
+      -- read up to the next newline or EOF
+      local chunk, err_msg = s:receive(4096)
+      if not chunk then
          if err_msg ~= socket.ERRORS.AGAIN then
             err(id, "Receive error: " .. tostring(err_msg))
             stop(id)
-         else
          end
-         return -- Exit loop if no data or error occurred
+         return
       end
 
-      console:log("[DEBUG] onRecv: Received " .. #line .. " bytes from socket " .. id .. ": '" .. line:gsub("[\r\n]+$", "") .. "'") -- Show received line minus trailing newline
+      -- break chunk into individual lines (commands)
+      for line in chunk:gmatch("[^\r\n]+") do
+         console:log("[DEBUG] onRecv: Received " .. #line .. " bytes from socket " .. id .. ": '" .. line .. "'")
 
-      -- protect parse() from any runtime error
-      local ok, perr = pcall(parse, line, s, id)
-      if not ok then
-         err(id, "parse internal exception: "..tostring(perr))
-         pcall(s.send, s, "ERR parse internal exception\n") -- Protect send as well
-      elseif perr then -- parse returned an error message
-         err(id, "Parse error: " .. perr)
-         pcall(s.send, s, "ERR "..perr.."\n") -- Protect send
-      else
+         local ok, perr = pcall(parse, line, s, id)
+         if not ok then
+            err(id, "parse internal exception: " .. tostring(perr))
+            pcall(s.send, s, "ERR parse internal exception\n")
+         elseif perr then
+            err(id, "Parse error: " .. perr)
+            pcall(s.send, s, "ERR " .. perr .. "\n")
+         end
       end
    end
 end
+
 
 local function onError(id, e)
    err(id, "Socket error event: " .. tostring(e))

@@ -9,16 +9,18 @@ import logging
 import tiktoken
 import socket
 import re
+import concurrent.futures
 
-from helpers import prep_llm
+from helpers import prep_llm, touch_controls_path_find
 from prompts import build_system_prompt, get_summary_prompt
-from client_setup import setup_llm_client # Import the new setup function
+from client_setup import setup_llm_client
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
 
 
 ACTION_RE = re.compile(r'^[LRUDABS](?:;[LRUDABS])*(?:;)?$')
+COORD_RE = re.compile(r'^([0-9]),([0-8])$')
 ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE)
 STREAM_TIMEOUT = 30
 CLEANUP_WINDOW = 5
@@ -51,21 +53,6 @@ def count_tokens(text: str) -> int:
     except Exception as e:
         log.warning(f"Tiktoken encoding failed (len {len(text)}): {e}. Using fallback.")
         return len(text) // 4
-
-def cleanup_image_history():
-    """Replaces image_url data with text placeholders in chat history."""
-    for msg in chat_history:
-        if isinstance(msg.get("content"), list):
-            new_content = []
-            has_image = False
-            for seg in msg["content"]:
-                if isinstance(seg, dict) and seg.get("type") == "image_url":
-                    if not has_image:
-                        new_content.append({"type": "text", "text": "[Image Content Removed]"})
-                        has_image = True
-                else:
-                    new_content.append(seg)
-            msg["content"] = new_content
 
 def calculate_prompt_tokens(messages):
     """Estimates token count for a list of messages."""
@@ -152,19 +139,28 @@ def summarize_and_reset():
 
 
 
+def next_with_timeout(iterator, timeout: float):
+    """Attempt to pull the first chunk from `iterator` within `timeout` seconds."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(lambda: next(iterator))
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(f"No chunk received in {timeout}s")
+
 def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     global response_count, tokens_used_session
 
     did_cleanup = False
-
     payload = copy.deepcopy(state_data)
     screenshot = payload.pop("screenshot", None)
     minimap = payload.pop("minimap", None)
 
     if not isinstance(payload, dict):
         log.error(f"Invalid state_data structure: {type(state_data)}")
-        return None, None
+        return None, None, False
 
+    # build the user message
     text_segment = {"type": "text", "text": json.dumps(payload)}
     current_content = [text_segment]
     image_parts_for_api = []
@@ -179,16 +175,13 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     current_user_message_api = {"role": "user", "content": current_content}
     messages_for_api = chat_history + [current_user_message_api]
 
-
+    # token accounting
     call_input_tokens = calculate_prompt_tokens(messages_for_api)
-    log.info(f"LLM call estimate: {call_input_tokens} input tokens ({len(image_parts_for_api)} images). History: {len(chat_history)} turns.")
+    log.info(f"LLM call estimate: {call_input_tokens} input tokens; history turns: {len(chat_history)}")
 
     full_output = ""
     action = None
     analysis_text = None
-    call_output_tokens = 0
-
-    print(str(messages_for_api))
 
     try:
         response = client.chat.completions.create(
@@ -200,101 +193,107 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
             stream=True
         )
 
+        iterator = iter(response)
         collected_chunks = []
-        stream_start_time = time.time()
-        log.info("LLM Stream:")
+        stream_start = time.time()
+        log.info("LLM Stream starting…")
         print(">>> ", end="", flush=True)
 
-        for chunk in response:
-            if time.time() - stream_start_time > timeout:
-                print("\n[TIMEOUT]", flush=True)
-                log.warning(f"LLM stream timed out after {timeout}s")
-                break
+        # --- first‐chunk timeout
+        try:
+            chunk = next_with_timeout(iterator, timeout)
+        except TimeoutError as toe:
+            log.warning(str(toe))
+            raise
 
-            delta_content = chunk.choices[0].delta.content
-            finish_reason = chunk.choices[0].finish_reason
-
-            if delta_content:
-                print(delta_content, end="", flush=True)
-                collected_chunks.append(delta_content)
-
-            if finish_reason:
-                print(f"\n[END - {finish_reason}]", flush=True)
-                log.info(f"LLM stream finished. Reason: {finish_reason}")
-                break
+        # process first chunk
+        delta = chunk.choices[0].delta.content
+        if delta:
+            print(delta, end="", flush=True)
+            collected_chunks.append(delta)
+        if chunk.choices[0].finish_reason:
+            print(f"\n[END - {chunk.choices[0].finish_reason}]", flush=True)
+            log.info(f"LLM stream finished immediately: {chunk.choices[0].finish_reason}")
         else:
+            # continue until finish or total timeout
+            for chunk in iterator:
+                if time.time() - stream_start > timeout:
+                    print("\n[TIMEOUT]", flush=True)
+                    log.warning(f"LLM stream timed out after {timeout}s total")
+                    raise TimeoutError(f"Stream timed out after {timeout}s")
 
-             print("\n[END - No Finish Reason]", flush=True)
-             log.warning("LLM stream finished without a finish_reason.")
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    print(delta, end="", flush=True)
+                    collected_chunks.append(delta)
 
+                if chunk.choices[0].finish_reason:
+                    print(f"\n[END - {chunk.choices[0].finish_reason}]", flush=True)
+                    log.info(f"LLM stream finished: {chunk.choices[0].finish_reason}")
+                    break
 
+        # assemble and record
         full_output = "".join(collected_chunks).strip()
-        log.info(f"LLM raw output ({len(full_output)} chars).")
+        log.info(f"LLM raw output length: {len(full_output)} chars")
 
+        # token accounting
+        output_tokens = count_tokens(full_output)
+        tokens_used_session += call_input_tokens + output_tokens
+        log.info(f"Used ~{output_tokens} output tokens; session total: {tokens_used_session}")
 
-        call_output_tokens = count_tokens(full_output)
-        total_call_tokens = call_input_tokens + call_output_tokens
-        tokens_used_session += total_call_tokens
-        log.info(f"LLM call tokens: ~{call_output_tokens} output, ~{total_call_tokens} total. Session: {tokens_used_session}")
-
-
-        user_history_content = [text_segment] + image_placeholders_for_history
-        chat_history.append({"role": "user", "content": user_history_content})
+        # push into history
+        user_hist = [text_segment] + image_placeholders_for_history
+        chat_history.append({"role": "user", "content": user_hist})
         chat_history.append({"role": "assistant", "content": full_output})
 
+        # cleanup threshold
         response_count += 1
-        log.info(f"Response count: {response_count}/{CLEANUP_WINDOW}")
         if response_count >= CLEANUP_WINDOW:
             summarize_and_reset()
             did_cleanup = True
 
+        # extract analysis section
+        match = ANALYSIS_RE.search(full_output)
+        if match:
+            analysis_text = match.group(1).strip()
 
-        analysis_match = ANALYSIS_RE.search(full_output)
-        if analysis_match:
-            analysis_text = analysis_match.group(1).strip()
-            log.info(f"Extracted game analysis ({len(analysis_text)} chars).")
-        else:
-            log.warning("Could not find <game_analysis> block in LLM output.")
-            analysis_text = None
+        # extract action JSON or fallback
+        json_match = re.search(r'(\{[\s\S]*?\})\s*$', full_output)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(1))
+                act = parsed.get("action")
+                touch = parsed.get("touch")
+                if isinstance(act, str) and ACTION_RE.match(act):
+                    action = act
+                elif isinstance(touch, str) and COORD_RE.match(touch):
+                    x, y = state_data["position"]
+                    action = touch_controls_path_find(state_data["map_id"], [x, y],
+                                                      [int(i) for i in touch.split(",")])
+                    chat_history.append({'role': 'user', 'content': action})
+            except json.JSONDecodeError:
+                log.warning("Failed to parse trailing JSON for action.")
+        if action is None:
+            # fallback: last line matching ACTION_RE
+            lines = [l.strip() for l in full_output.splitlines() if l.strip()]
+            if lines and ACTION_RE.match(lines[-1]) and not lines[-1].startswith('{'):
+                action = lines[-1]
 
-
+    except TimeoutError:
+        # single retry on any timeout
+        log.warning("Timeout encountered, retrying llm_stream_action once…")
         try:
-            json_match = re.search(r'(\{[\s\S]*?\})\s*$', full_output)
-            if json_match:
-                json_candidate = json_match.group(1)
-                try:
-                    parsed_json = json.loads(json_candidate)
-                    action_from_json = parsed_json.get("action")
-                    if isinstance(action_from_json, str) and ACTION_RE.match(action_from_json):
-                        action = action_from_json
-                        log.info(f"Extracted action via JSON: {action}")
+            return llm_stream_action(state_data, timeout)
+        except TimeoutError:
+            log.error("Second timeout — aborting LLM call.")
+            return None, None, False
 
-                except json.JSONDecodeError:
-                     log.warning(f"Failed to decode potential JSON: '{json_candidate[:100]}...'")
-
-
-            if action is None:
-                lines = [line.strip() for line in full_output.splitlines() if line.strip()]
-                if lines:
-                    last_line = lines[-1]
-
-                    if not last_line.startswith('<game_analysis>') and not last_line.endswith('</game_analysis>'):
-                        if not last_line.startswith('{') and ACTION_RE.match(last_line):
-                            action = last_line
-                            log.info(f"Extracted action via fallback (last line regex): {action}")
-
-
-
-        except Exception as e:
-            log.error(f"Error during action extraction: {e}", exc_info=True)
-            return None, None
     except Exception as e:
-        log.error(f"Error during LLM API call/streaming: {e}", exc_info=True)
-
-        return None, None
+        log.error(f"Error during LLM streaming: {e}", exc_info=True)
+        return None, None, False
 
     if action is None:
-         log.error("Failed to extract a valid action from LLM response.")
+        log.error("No valid action extracted from LLM output.")
 
     return action, analysis_text, did_cleanup
 
@@ -347,6 +346,8 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
         llm_input_state = copy.deepcopy(current_mGBA_state)
         state_update_start = time.time()
+
+        logging.info(f"History: {chat_history}")
 
 
         new_team = current_mGBA_state.get('party')

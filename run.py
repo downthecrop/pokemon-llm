@@ -206,7 +206,7 @@ async def main_async(auto):
 
             # Start the LLM driver loop
             llm_task = asyncio.create_task(
-                run_auto_loop(sock, state, broadcast, interval=10.0),
+                run_auto_loop(sock, state, broadcast, interval=13.0),
                 name="LLMDriverLoop"
             )
             tasks_to_await.append(llm_task)
