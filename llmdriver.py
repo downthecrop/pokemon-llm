@@ -132,7 +132,6 @@ def summarize_and_reset():
         if summary_resp.choices and summary_resp.choices[0].message.content:
             summary_text = summary_resp.choices[0].message.content.strip()
             summary_output_tokens = count_tokens(summary_text)
-            log.info(f"LLM Summary generated ({summary_output_tokens} tokens): {summary_text[:150]}...")
         else:
             log.warning("LLM Summary: No choices or empty content.")
             summary_text = "Summary generation failed."
@@ -146,14 +145,13 @@ def summarize_and_reset():
 
     
     json_object = parse_optional_fenced_json(summary_text)
-    if(json_object != None):
-        # Update the ui...
-        pass
+    log.info(f"LLM Summary generated ({summary_output_tokens} tokens): {str(json_object)}")
 
     new_system_prompt_content = build_system_prompt(summary_text)
     chat_history = [{"role": "system", "content": new_system_prompt_content}]
     response_count = 0
     log.info("Chat history summarized and reset.")
+    return json_object
 
 
 
@@ -169,7 +167,7 @@ def next_with_timeout(iterator, timeout: float):
 def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     global response_count, tokens_used_session
 
-    did_cleanup = False
+    summary_json = None
     payload = copy.deepcopy(state_data)
     screenshot = payload.pop("screenshot", None)
     minimap = payload.pop("minimap", None)
@@ -267,8 +265,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
         # cleanup threshold
         response_count += 1
         if response_count >= CLEANUP_WINDOW:
-            summarize_and_reset()
-            did_cleanup = True
+            summary_json = summarize_and_reset()
             time.sleep(5)
 
         # extract analysis section
@@ -314,7 +311,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     if action is None:
         log.error("No valid action extracted from LLM output.")
 
-    return action, analysis_text, did_cleanup
+    return action, analysis_text, summary_json
 
 
 
@@ -341,7 +338,6 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
         update_payload = {}
         action_payload = {}
-        did_cleanup_payload = {}
 
         try:
             log.debug("Requesting game state from mGBA...")
@@ -397,27 +393,6 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             update_payload['minimapLocation'] = state['minimapLocation']
             log.info(f"State Update: minimapLocation -> {loc_str}")
 
-
-        current_badges_count = len(state.get('badges', []))
-        primary_goal = state.get("goals", {}).get("primary", "")
-        if current_badges_count >= 8 and not primary_goal.startswith("Become the Pokemon League Champion"):
-            log.info("***** ALL BADGES OBTAINED - UPDATING PRIMARY GOAL *****")
-            state["goals"] = {
-                "primary": "Become the Pokemon League Champion!",
-                "secondary": ["Travel to the Indigo Plateau.", "Defeat the Elite Four."],
-                "tertiary": "Train Pokemon to level 100."
-            }
-            update_payload["goals"] = state["goals"]
-        else:
-            log.info("***** Debug UPDATING PRIMARY GOAL *****")
-            state["goals"] = {
-                "primary": "Become the Pokemon League Champion!",
-                "secondary": ["Travel to the Indigo Plateau.", "Defeat the Elite Four."],
-                "tertiary": "Train Pokemon to level 100."
-            }
-            update_payload["goals"] = state["goals"]
-
-
         b64_ss = encode_image_base64(SCREENSHOT_PATH)
         if b64_ss: llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": IMAGE_DETAIL}}
         else: llm_input_state["screenshot"] = None
@@ -433,13 +408,28 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         log_id_counter = state.get("log_id_counter", 0) + 1
         state["log_id_counter"] = log_id_counter
 
-        action, game_analysis, did_cleanup = llm_stream_action(llm_input_state)
+        action, game_analysis, summary_json = llm_stream_action(llm_input_state)
 
-        if did_cleanup:
-            did_cleanup_payload["log_entry"] = { "id": log_id_counter, "text": "🔎 Chat history cleaned up." }
-            await broadcast_func(did_cleanup_payload)
+        if summary_json is not None:
+            tmp = {"log_entry": {"id": log_id_counter, "text": "🔎 Chat history cleaned up."}}
+            await broadcast_func(tmp)
 
-        log.debug(f"LLM call finished (took {time.time() - llm_call_start:.2f}s).")
+            required = ("primayGoal", "secondaryGoal", "tertiaryGoal")
+
+            if isinstance(summary_json, dict):
+                # summary_json is dict, safe to check for keys
+                missing = [k for k in required if k not in summary_json]
+                if not missing:
+                    state["goals"] = {
+                        "primary":   summary_json["primayGoal"],
+                        "secondary": summary_json["secondaryGoal"],
+                        "tertiary":  summary_json["tertiaryGoal"],
+                    }
+                    update_payload["goals"] = state["goals"]
+                else:
+                    logging.error(f"Missing required goal keys in summary_json: {missing!r}")
+            else:
+                logging.error(f"Expected summary_json to be dict, but got {type(summary_json).__name__!r}")
 
 
         action_to_send = None
