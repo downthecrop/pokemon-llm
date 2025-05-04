@@ -24,8 +24,11 @@ COORD_RE = re.compile(r'^([0-9]),([0-8])$')
 ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE)
 STREAM_TIMEOUT = 30
 CLEANUP_WINDOW = 5
-IMAGE_TOKEN_COST_HIGH_DETAIL = 258
-IMAGE_TOKEN_COST_LOW_DETAIL = 85
+
+# https://platform.openai.com/docs/guides/images-vision
+MODEL_VISION_TOKEN_MULT = 2.5 # gpt-4.1-nano is 2.46 learn more here: 
+IMAGE_TOKEN_COST_HIGH_DETAIL = int(258 * MODEL_VISION_TOKEN_MULT)
+IMAGE_TOKEN_COST_LOW_DETAIL = int(85 * MODEL_VISION_TOKEN_MULT)
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
@@ -36,6 +39,16 @@ action_count = 0
 tokens_used_session = 0
 start_time = datetime.datetime.now()
 
+
+"""
+Note that you can use
+    ...
+    stream=True,
+    stream_options={"include_usage": True},
+)
+
+for a more accurate token usage.
+"""
 try:
     encoding = tiktoken.get_encoding("cl100k_base")
     log.info("Tiktoken encoder 'cl100k_base' loaded.")
@@ -364,15 +377,13 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
         badge_data = current_mGBA_state.get('badges')
-        num_badges = 0
-        if isinstance(badge_data, (list, int, str)):
-             try: num_badges = int(badge_data) if isinstance(badge_data, (int, str)) else len(badge_data)
-             except ValueError: log.warning(f"Invalid badge data format: {badge_data}")
-        new_badges_list = [{} for _ in range(num_badges)]
-        if new_badges_list != state.get('badges'):
-             state['badges'] = new_badges_list
-             update_payload['badges'] = state['badges']
-             log.info(f"State Update: badges ({len(new_badges_list)})")
+        current_state_badges = state.get('badges')
+
+        # Compare the new list with the stored list
+        if badge_data != current_state_badges:
+            log.info(f"State Update: Badges changed from {current_state_badges} to {badge_data}")
+            state['badges'] = badge_data
+            update_payload['badges'] = badge_data
 
 
         pos = current_mGBA_state.get('position')

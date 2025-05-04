@@ -163,6 +163,9 @@ html {
     height: 100%;
     background: linear-gradient(145deg, #5a5a5a, #3a3a3a);
     border-radius: 8px;
+    justify-content: center;
+    text-align: center;
+    font-size: 1.2em;          /* or whatever size fits your design */
     box-shadow:
         inset 0 1px 2px rgba(0, 0, 0, 0.5),
         0 1px 1px rgba(255, 255, 255, 0.1);

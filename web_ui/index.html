@@ -12,14 +12,22 @@
         .minimap-body img {
             max-width: 100%;
             display: block;
-            margin: 5px auto; /* Center image and add some margin */
-            object-fit: contain; /* Ensure the image fits without distortion */
+            margin: 5px auto;
+            /* Center image and add some margin */
+            object-fit: contain;
+            /* Ensure the image fits without distortion */
         }
+
+        .badge-emoji {
+            line-height: 1;
+            /* avoid weird vertical alignment */
+        }
+
         .minimap-hidden-message {
-             text-align: center;
-             color: #aaa;
-             font-style: italic;
-             padding: 20px 0;
+            text-align: center;
+            color: #aaa;
+            font-style: italic;
+            padding: 20px 0;
         }
     </style>
 </head>
@@ -28,21 +36,26 @@
     <div id="app">
         <!-- Header Section (No changes needed here) -->
         <div class="header">
-             <div class="stats-widget">
+            <div class="stats-widget">
                 <div class="actions-container">
                     <div class="widget-title">ACTIONS</div>
                     <div class="actions-count">{{ actions.toLocaleString() }}</div>
                     <div class="subinfo">
                         <span>Model: {{ modelName }}</span>
                         <span>Tokens: {{ tokensUsed.toLocaleString() }}</span>
-                        <span>GG: T-{{ ggValue !== null ? ggValue : 'N/A' }} | Summary: T-{{ summaryValue !== null ? summaryValue : 'N/A' }}</span>
+                        <span>GG: T-{{ ggValue !== null ? ggValue : 'N/A' }} | Summary: T-{{ summaryValue !== null ?
+                            summaryValue : 'N/A' }}</span>
                     </div>
                 </div>
                 <div class="badges-widget">
                     <div class="widget-title">BADGES - {{ badges.length }}/8</div>
                     <div class="badges">
-                        <div class="badge" v-for="(badge, i) in badges" :key="'badge-' + i"></div>
-                        <div class="badge empty" v-for="(empty, i) in Math.max(0, 8 - badges.length)" :key="'empty-badge-' + i"></div>
+                        <div class="badge" v-for="(badge, i) in displayBadges" :key="badge.name + '-' + i"
+                            :title="badge.name">
+                            <span class="badge-emoji">{{ badge.emoji }}</span>
+                        </div>
+                        <div class="badge empty" v-for="(_, i) in Math.max(0, 8 - badges.length)"
+                            :key="'empty-badge-' + i"></div>
                     </div>
                 </div>
             </div>
@@ -70,47 +83,40 @@
         <!-- Middle Column (Goals) (No changes needed here) -->
         <div class="goals-log">
             <div class="log" ref="goalsLogContainer">
-                 <h3>Primary Goal</h3>
-                 <p class="log-entry" v-html="formatLogText(goals.primary)"></p>
-                 <h3>Secondary Goals</h3>
-                 <ul>
-                     <li class="log-entry" v-for="(g,i) in goals.secondary" :key="'sec-'+i" v-html="formatLogText(g)"></li>
-                 </ul>
-                 <h3>Tertiary Goal</h3>
-                 <p class="log-entry" v-html="formatLogText(goals.tertiary)"></p>
-                 <h3>Other Notes</h3>
-                 <p class="log-entry" v-html="formatLogText(otherGoals)"></p>
+                <h3>Primary Goal</h3>
+                <p class="log-entry" v-html="formatLogText(goals.primary)"></p>
+                <h3>Secondary Goals</h3>
+                <ul>
+                    <li class="log-entry" v-for="(g,i) in goals.secondary" :key="'sec-'+i" v-html="formatLogText(g)">
+                    </li>
+                </ul>
+                <h3>Tertiary Goal</h3>
+                <p class="log-entry" v-html="formatLogText(goals.tertiary)"></p>
+                <h3>Other Notes</h3>
+                <p class="log-entry" v-html="formatLogText(otherGoals)"></p>
             </div>
         </div>
 
         <!-- Right Column (Game Feed & Team) -->
         <div class="feed-wrapper">
-             <div class="game-feed">
+            <div class="game-feed">
                 <div class="game-placeholder">Game Feed Placeholder</div>
                 <div class="minimap-container" v-show="minimapVisible">
                     <div class="minimap-header">{{ minimapLocation }}</div>
                     <!-- *** MODIFIED MINIMAP BODY *** -->
                     <div class="minimap-body">
-                         <img
-                            :src="minimapSrc"
-                            alt="Minimap"
-                            @load="handleMinimapLoad"
-                            @error="handleMinimapError"
-                         >
-                         <div v-if="!minimapVisible" class="minimap-hidden-message">
-                             Minimap Unavailable
-                         </div>
+                        <img :src="minimapSrc" alt="Minimap" @load="handleMinimapLoad" @error="handleMinimapError">
+                        <div v-if="!minimapVisible" class="minimap-hidden-message">
+                            Minimap Unavailable
+                        </div>
                     </div>
                     <!-- *** END MODIFIED MINIMAP BODY *** -->
                 </div>
             </div>
             <!-- Team Bar (No changes needed here) -->
             <div class="team-bar">
-                <div class="pokemon"
-                     v-for="(p,i) in currentTeam"
-                     :key="'team-'+i"
-                     :class="{ fainted: p.hp <= 0 }"
-                     :style="{ backgroundImage: `linear-gradient(to bottom, rgba(255,255,255,0.15), ${typeColors[p.type] || '#aaaaaa'})` }">
+                <div class="pokemon" v-for="(p,i) in currentTeam" :key="'team-'+i" :class="{ fainted: p.hp <= 0 }"
+                    :style="{ backgroundImage: `linear-gradient(to bottom, rgba(255,255,255,0.15), ${typeColors[p.type] || '#aaaaaa'})` }">
                     <div>
                         <div class="pokemon-name">{{ p.name }}</div>
                         <div class="pokemon-level">Lv {{ p.level }}</div>
@@ -118,14 +124,15 @@
                     </div>
                     <div>
                         <div class="hp-bar">
-                            <div class="hp-fill" :style="{ width: p.maxHp > 0 ? (p.hp / p.maxHp * 100) + '%' : '0%' }"></div>
+                            <div class="hp-fill" :style="{ width: p.maxHp > 0 ? (p.hp / p.maxHp * 100) + '%' : '0%' }">
+                            </div>
                         </div>
                         <div class="hp-text">{{ p.hp }} / {{ p.maxHp }}</div>
                     </div>
                 </div>
-                 <div class="pokemon empty-slot" v-for="i in Math.max(0, 6 - currentTeam.length)" :key="'empty-slot-'+i">
-                     EMPTY
-                 </div>
+                <div class="pokemon empty-slot" v-for="i in Math.max(0, 6 - currentTeam.length)" :key="'empty-slot-'+i">
+                    EMPTY
+                </div>
             </div>
         </div>
 
@@ -140,7 +147,7 @@
 
         Vue.createApp({
             data() {
-                 return {
+                return {
                     // --- Existing Data ---
                     actions: 0, badges: [], gameStatus: 'Connecting...', logs: [],
                     goals: { primary: 'Loading...', secondary: [], tertiary: 'Loading...' },
@@ -149,6 +156,17 @@
                     typeColors: { Water: '#4fc3f7', Grass: '#81c784', Poison: '#ba68c8', Electric: '#ffd54f', Rock: '#a1887f', Ground: '#d7ccc8', Fighting: '#e57373', Normal: '#bdbdbd', Bug: '#cddc39', Ghost: '#9575cd', Steel: '#b0bec5', Fire: '#ff8a65', Psychic: '#f06292', Ice: '#80deea', Dragon: '#7e57c2', Dark: '#757575', Fairy: '#f48fb1', Flying: '#90a4ae' },
                     websocket: null, websocketUrl: WEBSOCKET_URL, websocketStatus: 'Disconnected',
                     reconnectInterval: RECONNECT_INTERVAL, reconnectTimer: null,
+
+                    badgeEmojiMap: {
+                        Boulder: '🪨',
+                        Cascade: '💧',
+                        Thunder: '⚡',
+                        Rainbow: '🌈',
+                        Soul: '💜',
+                        Marsh: '🐸',
+                        Volcano: '🌋',
+                        Earth: '🌍',
+                    },
 
                     // --- New Data for Minimap ---
                     minimapSrc: '',          // Current source URL for the minimap image
@@ -161,10 +179,16 @@
                 // --- Existing Computed Properties ---
                 displayedLogs() {
                     return this.logs;
+                },
+                displayBadges() {
+                    return this.badges.map(name => ({
+                        name,
+                        emoji: this.badgeEmojiMap[name] || '❓'
+                    }))
                 }
             },
             methods: {
-                 // --- Existing Methods (connectWebSocket, processWebSocketMessage, scheduleReconnect, scrollToBottom, formatLogText) ---
+                // --- Existing Methods (connectWebSocket, processWebSocketMessage, scheduleReconnect, scrollToBottom, formatLogText) ---
                 connectWebSocket() { /* ... (Keep existing implementation) ... */
                     console.log(`Attempting to connect to ${this.websocketUrl}...`); this.websocketStatus = 'Connecting';
                     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
@@ -176,10 +200,10 @@
                     this.websocket.onclose = (event) => {
                         console.log(`WebSocket connection closed: Code=${event.code}, Reason='${event.reason}'`); this.websocket = null;
                         if (event.code !== 1000 && !this.reconnectTimer) { console.log("Connection closed unexpectedly or failed to connect. Attempting to reconnect..."); this.websocketStatus = 'Disconnected'; this.scheduleReconnect(); }
-                        else if (event.code === 1000) { this.websocketStatus = 'Disconnected'; } else { if(this.websocketStatus !== 'Reconnecting...') { this.websocketStatus = 'Disconnected'; } }
+                        else if (event.code === 1000) { this.websocketStatus = 'Disconnected'; } else { if (this.websocketStatus !== 'Reconnecting...') { this.websocketStatus = 'Disconnected'; } }
                     };
                 },
-                 processWebSocketMessage(message) { /* ... (Keep existing implementation) ... */
+                processWebSocketMessage(message) { /* ... (Keep existing implementation) ... */
                     for (const key in message) {
                         if (!message.hasOwnProperty(key)) { continue; }
                         if (key === 'log_entry') {
@@ -192,7 +216,7 @@
                                 this.scrollToBottom(this.$refs.actionLogContainer);
                             } else { console.warn(`Received invalid 'log_entry':`, message.log_entry); }
                         } else if (key === 'logs') {
-                             if (Array.isArray(message.logs)) {
+                            if (Array.isArray(message.logs)) {
                                 console.log("Received full 'logs' array, replacing local logs.");
                                 this.logs = message.logs.slice(-MAX_LOG_ENTRIES);
                                 this.scrollToBottom(this.$refs.actionLogContainer);
@@ -203,21 +227,21 @@
                                 // console.warn(`WebSocket tried to update '${key}', but it's managed by polling. Ignoring.`);
                                 continue; // Skip WebSocket updates for these specific properties
                             }
-                            if (this[key] === null || typeof this[key] === typeof message[key] || (Array.isArray(this[key]) && Array.isArray(message[key])) || (typeof this[key] === 'object' && typeof message[key] === 'object' && !Array.isArray(this[key]) && !Array.isArray(message[key])) ) {
+                            if (this[key] === null || typeof this[key] === typeof message[key] || (Array.isArray(this[key]) && Array.isArray(message[key])) || (typeof this[key] === 'object' && typeof message[key] === 'object' && !Array.isArray(this[key]) && !Array.isArray(message[key]))) {
                                 this[key] = message[key];
                             } else {
                                 console.warn(`Type mismatch for key '${key}'. Local type: ${typeof this[key]} (${Array.isArray(this[key]) ? 'Array' : 'Object'}), Received type: ${typeof message[key]} (${Array.isArray(message[key]) ? 'Array' : 'Object'}). Update skipped.`);
                             }
                         }
                     }
-                 },
+                },
                 scheduleReconnect() { /* ... (Keep existing implementation) ... */
                     if (this.reconnectTimer) { return; } this.websocketStatus = 'Reconnecting...';
                     console.log(`Scheduling reconnect in ${this.reconnectInterval / 1000} seconds...`);
                     this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connectWebSocket(); }, this.reconnectInterval);
                 },
                 scrollToBottom(container) { /* ... (Keep existing implementation) ... */
-                     if (container) { this.$nextTick(() => { container.scrollTop = container.scrollHeight; }); }
+                    if (container) { this.$nextTick(() => { container.scrollTop = container.scrollHeight; }); }
                 },
                 formatLogText(text) { /* ... (Keep existing implementation) ... */
                     if (typeof text !== 'string' || !text) { return text; }
@@ -231,9 +255,9 @@
                         let cleanedSequence = sequence.replace(/;/g, '').replace(/\s+/g, ' ').trim();
                         let highlightedSequence = '';
                         for (const actionChar of cleanedSequence) {
-                             if (actionChar === ' ') { highlightedSequence += ' '; }
-                             else if (/[AB]/.test(actionChar)) { highlightedSequence += `<span class="action-type-ab">${actionChar}</span>`; }
-                             else if (/[UDLRS]/.test(actionChar)) { highlightedSequence += `<span class="action-type-direction">${actionChar}</span>`; }
+                            if (actionChar === ' ') { highlightedSequence += ' '; }
+                            else if (/[AB]/.test(actionChar)) { highlightedSequence += `<span class="action-type-ab">${actionChar}</span>`; }
+                            else if (/[UDLRS]/.test(actionChar)) { highlightedSequence += `<span class="action-type-direction">${actionChar}</span>`; }
                         }
                         return prefix + highlightedSequence;
                     });
@@ -287,4 +311,5 @@
     </script>
 
 </body>
+
 </html>

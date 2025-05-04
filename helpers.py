@@ -124,7 +124,7 @@ def touch_controls_path_find(mapid, currentPos, screenCoords):
     destination = [max(int(currentPos[0]) + x, 0), max(int(currentPos[1]) - y, 0)]
     actions = find_path(DEFAULT_ROM, mapid, currentPos, destination)
     if(actions == None):
-        return "[PATH BLOCK OR INVALID (likely selected a non-walkable tile as your destination)]\n"
+        return "[PATH BLOCK OR INVALID]\n"
     return actions # None if there is no valid path
     
 
@@ -137,38 +137,32 @@ def get_party_text(sock) -> str:
     party = []
     header = readrange(sock, "0xD163", "8")
     count = header[0]
-    lines: list[str] = []
-    if count == 0:
-        lines.append("Your party is empty.")
-    else:
-        lines.append(f"You have {count} Pokémon in your party:")
-        species_map = get_species_map()
-        for slot in range(count):
-            data_addr = 0xD163 + 0x08 + slot * 44
-            name_addr = 0xD163 + 0x152 + slot * 10
-            d = readrange(sock, hex(data_addr), "44")
-            raw_name = readrange(sock, hex(name_addr), "10")
-            internal_id = header[1 + slot]
+    species_map = get_species_map()
+    for slot in range(count):
+        data_addr = 0xD163 + 0x08 + slot * 44
+        name_addr = 0xD163 + 0x152 + slot * 10
+        d = readrange(sock, hex(data_addr), "44")
+        raw_name = readrange(sock, hex(name_addr), "10")
+        internal_id = header[1 + slot]
 
-            # Now expect 4-tuple: (dex_no, mon_name, type1, type2)
-            dex_no, mon_name, type1, type2 = species_map.get(
-                internal_id,
-                (None, f"ID 0x{internal_id:02X}", None, None)
-            )
+        # Now expect 4-tuple: (dex_no, mon_name, type1, type2)
+        dex_no, mon_name, type1, type2 = species_map.get(
+            internal_id,
+            (None, f"ID 0x{internal_id:02X}", None, None)
+        )
 
-            hp_cur = struct.unpack(">H", d[1:3])[0]
-            level = d[0x21]
-            hp_max = struct.unpack(">H", d[0x22:0x24])[0]
-            nickname = decode_pokemon_text(raw_name) or "(no nick)"
+        hp_cur = struct.unpack(">H", d[1:3])[0]
+        level = d[0x21]
+        hp_max = struct.unpack(">H", d[0x22:0x24])[0]
+        nickname = decode_pokemon_text(raw_name) or "(no nick)"
 
-            # Build a types string, e.g. "Grass/Poison" or just "Fire"
-            types = type1 if type1 else ""
-            if type2:
-                types += f"/{type2}"
-
-            label = f"#{dex_no:03} {mon_name}" if dex_no else mon_name
-            mon = {"name": mon_name, "level": level, "type": type1, "hp": hp_cur, "maxHp": hp_max, "nickname": nickname}
-            party.append(mon)
+        # Build a types string, e.g. "Grass/Poison" or just "Fire"
+        types = type1 if type1 else ""
+        if type2:
+            types += f"/{type2}"
+        
+        mon = {"name": mon_name, "level": level, "type": type1, "hp": hp_cur, "maxHp": hp_max, "nickname": nickname}
+        party.append(mon)
     return party
 
 
