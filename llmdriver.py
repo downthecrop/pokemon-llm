@@ -67,6 +67,7 @@ def count_tokens(text: str) -> int:
         log.warning(f"Tiktoken encoding failed (len {len(text)}): {e}. Using fallback.")
         return len(text) // 4
 
+
 def calculate_prompt_tokens(messages):
     """Estimates token count for a list of messages."""
     tokens = 0
@@ -154,7 +155,6 @@ def summarize_and_reset():
     return json_object
 
 
-
 def next_with_timeout(iterator, timeout: float):
     """Attempt to pull the first chunk from `iterator` within `timeout` seconds."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -163,6 +163,7 @@ def next_with_timeout(iterator, timeout: float):
             return future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
             raise TimeoutError(f"No chunk received in {timeout}s")
+
 
 def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     global response_count, tokens_used_session
