@@ -87,7 +87,7 @@
                 <p class="log-entry" v-html="formatLogText(goals.primary)"></p>
                 <h3>Secondary Goals</h3>
                 <ul>
-                    <li class="log-entry" v-for="(g,i) in goals.secondary" :key="'sec-'+i" v-html="formatLogText(g)">
+                    <li class="log-entry" v-html="formatLogText(goals.secondary)">
                     </li>
                 </ul>
                 <h3>Tertiary Goal</h3>
@@ -150,7 +150,7 @@
                 return {
                     // --- Existing Data ---
                     actions: 0, badges: [], gameStatus: 'Connecting...', logs: [],
-                    goals: { primary: 'Loading...', secondary: [], tertiary: 'Loading...' },
+                    goals: { primary: 'Loading...', secondary: 'Loading...', tertiary: 'Loading...' },
                     otherGoals: 'Loading...', currentTeam: [], modelName: 'N/A', tokensUsed: 0,
                     ggValue: null, summaryValue: null, minimapLocation: 'Unknown Area',
                     typeColors: { Water: '#4fc3f7', Grass: '#81c784', Poison: '#ba68c8', Electric: '#ffd54f', Rock: '#a1887f', Ground: '#d7ccc8', Fighting: '#e57373', Normal: '#bdbdbd', Bug: '#cddc39', Ghost: '#9575cd', Steel: '#b0bec5', Fire: '#ff8a65', Psychic: '#f06292', Ice: '#80deea', Dragon: '#7e57c2', Dark: '#757575', Fairy: '#f48fb1', Flying: '#90a4ae' },

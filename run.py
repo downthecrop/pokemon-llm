@@ -30,7 +30,7 @@ state = {
     "actions": 0,
     "badges": [],
     "gameStatus": "0h 0m 0s",
-    "goals": { "primary": 'Initializing...', "secondary": [], "tertiary": '' },
+    "goals": { "primary": 'Initializing...', "secondary": 'Initializing...', "tertiary": 'Initializing...' },
     "otherGoals": 'Initializing...',
     "currentTeam": [],
     "modelName": MODEL,

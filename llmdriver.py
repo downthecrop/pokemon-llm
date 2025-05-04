@@ -6,7 +6,6 @@ import copy
 import asyncio
 import datetime
 import logging
-import tiktoken
 import socket
 import re
 import concurrent.futures
@@ -14,6 +13,7 @@ import concurrent.futures
 from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client
+from token_coutner import count_tokens, calculate_prompt_tokens
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -25,10 +25,6 @@ ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORE
 STREAM_TIMEOUT = 30
 CLEANUP_WINDOW = 5
 
-# https://platform.openai.com/docs/guides/images-vision
-MODEL_VISION_TOKEN_MULT = 2.5 # gpt-4.1-nano is 2.46 learn more here: 
-IMAGE_TOKEN_COST_HIGH_DETAIL = int(258 * MODEL_VISION_TOKEN_MULT)
-IMAGE_TOKEN_COST_LOW_DETAIL = int(85 * MODEL_VISION_TOKEN_MULT)
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
@@ -39,59 +35,6 @@ action_count = 0
 tokens_used_session = 0
 start_time = datetime.datetime.now()
 
-
-"""
-Note that you can use
-    ...
-    stream=True,
-    stream_options={"include_usage": True},
-)
-
-for a more accurate token usage.
-"""
-try:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    log.info("Tiktoken encoder 'cl100k_base' loaded.")
-except Exception as e:
-    log.warning(f"Failed to load tiktoken encoder: {e}. Token counts will be approximate (char/4).")
-    encoding = None
-
-
-def count_tokens(text: str) -> int:
-    """Estimates token count for a given text using the loaded encoding."""
-    if not text: return 0
-    if not encoding: return len(text) // 4
-    try:
-        return len(encoding.encode(text))
-    except Exception as e:
-        log.warning(f"Tiktoken encoding failed (len {len(text)}): {e}. Using fallback.")
-        return len(text) // 4
-
-
-def calculate_prompt_tokens(messages):
-    """Estimates token count for a list of messages."""
-    tokens = 0
-    tokens_per_message = 3
-    tokens_per_role = 1
-    try:
-        for message in messages:
-            tokens += tokens_per_message + tokens_per_role
-            content = message.get('content', '')
-            if isinstance(content, str):
-                tokens += count_tokens(content)
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict):
-                        item_type = item.get('type')
-                        if item_type == 'text':
-                            tokens += count_tokens(item.get('text', ''))
-                        elif item_type == 'image_url':
-                            tokens += IMAGE_TOKEN_COST_HIGH_DETAIL
-        tokens += 3
-        return tokens
-    except Exception as e:
-         log.error(f"Error calculating prompt tokens: {e}", exc_info=True)
-         return 0
 
 def summarize_and_reset():
     """Condenses history, updates system prompt, resets history, accounts for tokens."""

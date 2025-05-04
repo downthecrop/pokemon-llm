@@ -13,7 +13,7 @@ DEFAULT_IMAGE_DETAIL = "low" # high or low
 DEFAULT_OPENAI_MODEL = "gpt-4.1-nano"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
 DEFAULT_OLLAMA_MODEL = "llama3.2-vision:11b"
-DEFAULT_LMSTUDIO_MODEL = "amoral-fallen-omega-gemma3-12b-mlx"
+DEFAULT_LMSTUDIO_MODEL = "mlx-community/gemma-3-27b-it-qat-4bit"
 
 load_dotenv() # Load variables from .env file
 
