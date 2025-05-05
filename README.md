@@ -3,6 +3,12 @@
 - Currently only supports Gen1 but Gen2 & Gen3 support are planned
 - Requires mGBA with scripting autolaunch, [dev builds support this.](https://mgba.io/downloads.html#development-downloads)
 
+## Web UI
+
+![webui](images/ui.png)
+
+> Open web_ui/index.html in your browser. Use streaming software like OBS to add mGBA game feed.
+
 ## DUMP MAP IMAGE
 
 python dump.py red.gb 56 -o mart.png -d --start 7,7 --end 0,2
