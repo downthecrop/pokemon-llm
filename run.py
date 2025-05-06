@@ -13,10 +13,12 @@ from helpers import DEFAULT_ROM
 
 from interactive import interactive_console
 from llmdriver import run_auto_loop, MODEL
+from helpers import send_command
 
 # --- WebSocket Server Configuration ---
 WEBSOCKET_PORT = 8765
 PORT = 8888
+LOAD_SAVESTATE = False # should we load a savestate? Updated by CLI
 MGBA_EXE = '/Applications/mGBA.app/Contents/MacOS/mGBA' # Adjust if needed
 LUA_SCRIPT = './socketserver.lua' # Adjust if needed
 
@@ -159,6 +161,9 @@ def start_mgba_with_scripting(rom_path=None, port=PORT):
             # Keep blocking for simplicity in current setup (console/llmdriver manage reads)
             sock.setblocking(True)
             log.info(f"Connected to mGBA scripting server on port {port}")
+            if(LOAD_SAVESTATE): # Check the global LOAD_SAVESTATE flag
+                log.info("LOAD_SAVESTATE is True, attempting to load savestate 1.")
+                send_command(sock, "LOADSTATE 1")
             return proc, sock # Success
         except ConnectionRefusedError:
             log.warning(f"Connection to mGBA refused (attempt {attempt+1}/{retries}). Is mGBA running and script loaded?")
@@ -188,7 +193,7 @@ def start_mgba_with_scripting(rom_path=None, port=PORT):
     sys.exit(1)
 
 # --- Main Execution Logic ---
-async def main_async(auto):
+async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
     """Asynchronous main function to run mGBA, WebSocket server, and optionally the LLM loop."""
     proc = sock = None
     websocket_task = None
@@ -196,6 +201,7 @@ async def main_async(auto):
     tasks_to_await = []
 
     try:
+        # LOAD_SAVESTATE global will be used by start_mgba_with_scripting
         proc, sock = start_mgba_with_scripting()
 
         if auto:
@@ -205,11 +211,20 @@ async def main_async(auto):
             tasks_to_await.append(websocket_task)
 
             # Start the LLM driver loop
-            llm_task = asyncio.create_task(
-                run_auto_loop(sock, state, broadcast, interval=13.0),
-                name="LLMDriverLoop"
-            )
+            if max_loops_arg is not None:
+                log.info(f"Starting LLM driver loop (max_loops: {max_loops_arg})...")
+                llm_task = asyncio.create_task(
+                    run_auto_loop(sock, state, broadcast, interval=13.0, max_loops=max_loops_arg),
+                    name="LLMDriverLoop"
+                )
+            else:
+                log.info("Starting LLM driver loop...")
+                llm_task = asyncio.create_task(
+                    run_auto_loop(sock, state, broadcast, interval=13.0), # Original call
+                    name="LLMDriverLoop"
+                )
             tasks_to_await.append(llm_task)
+
 
             # Wait for either task to complete (which usually indicates an error or shutdown)
             if tasks_to_await:
@@ -251,9 +266,19 @@ async def main_async(auto):
                  log.info(f"Cancelling task {task.get_name()} during final cleanup.")
                  task.cancel()
         # Wait for cancellations to complete
-        cancelled_tasks = [t for t in tasks_to_await if t and t.cancelled()]
-        if cancelled_tasks:
-            await asyncio.gather(*cancelled_tasks, return_exceptions=True)
+        # Filter for tasks that were actually attempted to be cancelled and are now in cancelled state.
+        # gather on already completed/cancelled tasks might behave differently or raise.
+        # A more robust way:
+        pending_cancellations = [t for t in tasks_to_await if t and t.cancelled()] # Check if already cancelled
+        for t in tasks_to_await: # For those not yet confirmed cancelled but cancel was called
+            if t and not t.done() and t not in pending_cancellations: # Should be caught by earlier cancel()
+                # This indicates cancel() didn't immediately mark as cancelled, or task is stuck
+                # Add to list to await, but this scenario is less common with standard asyncio usage
+                pending_cancellations.append(t)
+        
+        if pending_cancellations:
+            await asyncio.gather(*pending_cancellations, return_exceptions=True)
+
 
         if sock:
             try:
@@ -291,11 +316,49 @@ async def main_async(auto):
 
 
 if __name__ == '__main__':
-    auto = '--auto' in sys.argv
+    # Default values for command line arguments
+    auto_mode = False
+    parsed_max_loops = None
+    # LOAD_SAVESTATE is a global, initialized to False at the top of the script.
+    # It will be modified here if --load_savestate is present.
 
-    if auto:
+    cli_args = sys.argv[1:]
+    i = 0
+    while i < len(cli_args):
+        arg = cli_args[i]
+        if arg == '--auto':
+            auto_mode = True
+            i += 1
+        elif arg == '--load_savestate':
+            LOAD_SAVESTATE = True # Modify the global variable
+            log.info("Command line argument: --load_savestate detected. LOAD_SAVESTATE set to True.")
+            i += 1
+        elif arg == '--max_loops':
+            if i + 1 < len(cli_args):
+                try:
+                    value = int(cli_args[i+1])
+                    if value <= 0:
+                        log.error("--max_loops value must be a positive integer.")
+                        sys.exit(1)
+                    parsed_max_loops = value
+                    log.info(f"Command line argument: --max_loops set to {parsed_max_loops}.")
+                    i += 2 # Consumed arg and its value
+                except ValueError:
+                    log.error(f"--max_loops expects an integer value, got: {cli_args[i+1]}")
+                    sys.exit(1)
+            else:
+                log.error("--max_loops requires an argument (number of loops).")
+                sys.exit(1)
+        else:
+            log.warning(f"Unknown command line argument: {arg}")
+            # You might want to print usage and exit here for unknown arguments:
+            # print(f"Usage: python {sys.argv[0]} [--auto] [--load_savestate] [--max_loops <number>]")
+            # sys.exit(1)
+            i += 1
+
+    if auto_mode:
         try:
-            asyncio.run(main_async(auto=True))
+            asyncio.run(main_async(auto=True, max_loops_arg=parsed_max_loops))
         except KeyboardInterrupt:
             log.info("KeyboardInterrupt received, stopping async tasks...")
         except Exception as e:
@@ -305,10 +368,12 @@ if __name__ == '__main__':
     else:
         # --- Synchronous Mode ---
         log.info("Interactive mode enabled. WebSocket server and LLM driver will NOT run.")
+        # Note: parsed_max_loops is not used in interactive mode.
+        # LOAD_SAVESTATE (global) will be respected by start_mgba_with_scripting.
         proc = sock = None
         try:
             # Start mGBA (synchronous is fine here)
-            proc, sock = start_mgba_with_scripting()
+            proc, sock = start_mgba_with_scripting() # This will use the global LOAD_SAVESTATE
             # Run the interactive console (which is blocking)
             interactive_console(sock) # Call the imported function
         except KeyboardInterrupt:
@@ -341,7 +406,7 @@ if __name__ == '__main__':
                 except subprocess.TimeoutExpired:
                     log.warning("mGBA process did not terminate gracefully, killing.")
                     proc.kill()
-                    proc.wait()
+                    proc.wait() # Wait for kill
                 except Exception as e:
                      log.error(f"Error terminating mGBA process: {e}")
             log.info("--- Interactive run finished ---")

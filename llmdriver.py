@@ -7,6 +7,7 @@ import asyncio
 import datetime
 import logging
 import socket
+import math
 import re
 import concurrent.futures
 
@@ -292,11 +293,11 @@ def encode_image_base64(image_path: str) -> str | None:
         return None
 
 
-async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0):
+async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0, max_loops = math.inf):
     """Main async loop: Get state, call LLM, send action, update/broadcast state."""
     global action_count, tokens_used_session, start_time
 
-    while True:
+    while action_count < max_loops:
         loop_start_time = time.time()
         current_cycle = action_count + 1
         log.info(f"--- Loop Cycle {current_cycle} ---")

@@ -3,6 +3,7 @@
 -- Start / Sel: S (START)  s (SELECT)
 -- Extra      : CAP  ➜ send ARGB raster (length header + pixels)
 --           : READRANGE <address> <length>  ➜ send memory bytes (length header + data)
+--           : LOADSTATE <slot> [flags] ➜ load save state (flags default to 29)
 -- Copy to …/mGBA.app/Contents/Resources/scripts/   Run with:
 --     mGBA --script socketserver.lua <rom>
 
@@ -292,6 +293,77 @@ local function parse(line, sock, sockId)
    if line:upper() == "CAP" then
       console:log("[DEBUG] parse: CAP command received.")
       sendCapture(sock, sockId)
+      return
+   end
+
+   -- LOADSTATE command (case-insensitive for the command word "LOADSTATE")
+   -- Usage: LOADSTATE <slot_number> [flags]
+   -- Example: LOADSTATE 1
+   -- Example: LOADSTATE 1 29
+   local slot_str, flags_str = line:match("^[Ll][Oo][Aa][Dd][Ss][Tt][Aa][Tt][Ee]%s+(%S+)%s*(%S*)$")
+   if slot_str then
+      -- slot_str is mandatory due to (%S+)
+      -- flags_str is optional due to (%S*); will be empty string if not provided
+      console:log("[DEBUG] parse: LOADSTATE command received with slot: '" .. slot_str .. "'" .. ((flags_str and flags_str ~= "") and (" flags: '" .. flags_str .. "'") or " (default flags)"))
+      
+      local slot = tonumber(slot_str)
+      local flags = 29 -- Default flags value for emu.loadStateSlot
+
+      if not slot then 
+         local err_msg = "Invalid slot number for LOADSTATE: '" .. slot_str .. "'"
+         err(sockId, err_msg)
+         sock:send("ERR " .. err_msg .. "\n")
+         return
+      end
+      -- mGBA uses 0-indexed slots (e.g., 0-9). Enforce non-negative.
+      if slot < 0 then
+          local err_msg = "Slot number for LOADSTATE must be non-negative: " .. slot
+          err(sockId, err_msg)
+          sock:send("ERR " .. err_msg .. "\n")
+          return
+      end
+       -- Ensure slot is an integer
+      if math.floor(slot) ~= slot then
+          local err_msg = "Slot number for LOADSTATE must be an integer: '" .. slot_str .. "'"
+          err(sockId, err_msg)
+          sock:send("ERR " .. err_msg .. "\n")
+          return
+      end
+
+
+      if flags_str and flags_str ~= "" then -- If flags argument was provided and is not empty
+         local parsed_flags = tonumber(flags_str)
+         if not parsed_flags then
+            local err_msg = "Invalid flags value for LOADSTATE: '" .. flags_str .. "'"
+            err(sockId, err_msg)
+            sock:send("ERR " .. err_msg .. "\n")
+            return
+         end
+         -- Ensure flags is an integer as it's s32
+         if math.floor(parsed_flags) ~= parsed_flags then
+            local err_msg = "Flags for LOADSTATE must be an integer: '" .. flags_str .. "'"
+            err(sockId, err_msg)
+            sock:send("ERR " .. err_msg .. "\n")
+            return
+         end
+         flags = parsed_flags
+      end
+
+      console:log("[DEBUG] parse: Calling emu:loadStateSlot(" .. slot .. ", " .. flags .. ")")
+      local success = emu:loadStateSlot(slot, flags)
+
+      if success then
+         console:log("[INFO ] parse: LOADSTATE successful for slot " .. slot .. " with flags " .. flags)
+         sock:send("OK LOADSTATE slot " .. slot .. "\n")
+         -- Clear hold table as the game state has drastically changed,
+         -- and emu's internal key state is likely reset by loading a state.
+         console:log("[DEBUG] parse: Clearing hold table due to successful LOADSTATE.")
+         hold = {}
+      else
+         local err_msg = "emu:loadStateSlot failed for slot " .. slot .. " (flags " .. flags .. ")"
+         err(sockId, err_msg)
+         sock:send("ERR " .. err_msg .. "\n")
+      end
       return
    end
 
