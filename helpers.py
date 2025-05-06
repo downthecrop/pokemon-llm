@@ -499,9 +499,10 @@ def parse_optional_fenced_json(text):
         json_str = text.strip()
     
     try:
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"JSON parsing error: {e}") from e
+        j = json.loads(json_str)
+        return j
+    except:
+        return {}
 
 # from https://github.com/davidhershey/ClaudePlaysPokemonStarter/blob/main/agent/memory_reader.py
 class MapLocation(IntEnum):

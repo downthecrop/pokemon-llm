@@ -36,8 +36,8 @@ def build_system_prompt(actionSummary: str) -> str:
         - To interact with objects or NPCs, move directly beside them (no diagonal interactions) and press A.
         - Align yourself properly with doors and stairs before attempting to use them.
         - Remember that you can't move through walls or objects.
-        - Prefer walking on grass and paths when possible.
-        - You can only pass ledges by moving DOWN, never UP.
+        - Prefer walking on grass and paths when possible (lighter color squares).
+        - FACING DIRECTION DOES NOT AFFECT MOVEMENT VALUES, U will ALWAYS move vertically+1 Up, R will always move horizontally+1 Right.
         - To interact with an NPC or Object you must be facing their tile. (To Interact with a tile above [x=x, y=y+1] you you must be facing north)
         - If you repeartedly try the same action and it fails (your position remain the same), explore other options, like moving around the object blocking you.
         - When in a city, orange areas on the minimap idenify buildings you can enter.
@@ -66,7 +66,8 @@ def build_system_prompt(actionSummary: str) -> str:
         - Any potential obstacles or challenges you foresee
 
         7. Output Format:
-        After your analysis, on a new line, provide a single line JSON object with the "action" property containing your chosen command or command chain.
+        - After your analysis, on a new line, provide a single line JSON object with the "action" property containing your chosen command or command chain.
+        - ALWAYS use semicolons between action items. AAA and AAA; INVALID. A;A;A; is VALID.
 
         Example output structure (ALWAYS match this format):
 
@@ -108,8 +109,11 @@ def build_system_prompt(actionSummary: str) -> str:
         Remember:
         - Always use both the screenshot and minimap for navigation is available.
         - Be careful to align properly with doors and entrances/exits.
+        - Idel (No action/touch) is not an acceptable decision.
+        - Touch is best for navigation in cities and routes but get stuck trying to navigate around NPC's.
+        - The screenshot is the best most accurate representation of the game. It should be your primary source of information.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
-        - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach or consider touch navigation.
+        - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
 
@@ -124,24 +128,17 @@ def get_summary_prompt():
         Be concise, ideally under 300 words. Avoid listing button presses.
         Do not include JSON {"action": ...} or {"touch": ...} in your planning and summary
 
-        At the end of your summary you MUST include a JSON object with an updated list of goals.
+        Now construct your JSON result following the template. Your answer will be used for future planning.
+        EVERY key value pair is string:string. Do not use lists or arrays.
+        Do NOT wrap your response in ```json ```, just return the raw JSON object.
+        Respond only with VALID JSON in the specified format.
+        Respond in the following format:
 
         {
-        "summary": "Your summary ideally under  300 words"
-        "primayGoal": "Two sentences MAXIMUM",
-        "secondaryGoal": "Two sentences MAXIMUM",
-        "tertiaryGoal": "Two sentences MAXIMUM",
-        "otherNotes": "3 Bulletpoints MAXIMUM"
+            "summary": "Your summary ideally under 300 words : string"
+            "primayGoal": "2 sentences MAXIMUM : string",
+            "secondaryGoal": "2 sentences MAXIMUM: string",
+            "tertiaryGoal": "2 sentences MAXIMUM : string",
+            "otherNotes": "3 sentences MAXIMUM : string"
         }
-
-        Example results.
-        Summary: I have started the game and named my character...
-        Primay Goal: Leave my bedroom and aquire my first pokemon...
-        Secondary Goal: Speak to mom...
-        Tertiary Goal: Explore Pallet Town...
-        Other Notes: - I explored..., - I tried to go..., - I obtained...
-
-        Now construct your JSON result following the template. Your answer will be used for future planning.
-        Do NOT wrap your response in ```json ```, just return the raw JSON object.
-
         """

@@ -8,12 +8,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO
+DEFAULT_MODE = "GROQ" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ
 DEFAULT_IMAGE_DETAIL = "low" # high or low
 DEFAULT_OPENAI_MODEL = "gpt-4.1-nano"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
-DEFAULT_OLLAMA_MODEL = "llama3.2-vision:11b"
-DEFAULT_LMSTUDIO_MODEL = "mlx-community/gemma-3-27b-it-qat-4bit"
+DEFAULT_OLLAMA_MODEL = "llava-phi3"
+DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
+DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 load_dotenv() # Load variables from .env file
 
@@ -38,6 +39,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
 
     client = None
     model = None
+    supports_reasoning = False
 
     log.info(f"--- Initializing LLM Client (Mode: {MODE}) ---")
 
@@ -50,6 +52,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
         try:
             client = OpenAI(api_key=api_key)
             model = get_config("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+            supports_reasoning = True
             log.info(f"Using OpenAI Mode. Model: {model}")
         except Exception as e:
             log.error(f"Failed to initialize OpenAI client: {e}", exc_info=True)
@@ -68,6 +71,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
             )
             model = get_config("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+            supports_reasoning = True
             log.info(f"Using Gemini Mode (via OpenAI client). Model: {model}")
         except Exception as e:
             log.error(f"Failed to initialize Gemini client (via OpenAI compat): {e}", exc_info=True)
@@ -81,6 +85,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
                 api_key='ollama', # Hardcoded placeholder key for Ollama
             )
             model = get_config("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+            supports_reasoning = True # Not sure for this
             log.info(f"Using Ollama Mode. Base URL: {ollama_base_url}, Model: {model} (API Key: Placeholder)")
         except Exception as e:
             log.error(f"Failed to initialize Ollama client: {e}", exc_info=True)
@@ -94,9 +99,26 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
                 api_key='lmstudio', # Hardcoded placeholder key for LMStudio
             )
             model = get_config("LMSTUDIO_MODEL", DEFAULT_LMSTUDIO_MODEL)
+            supports_reasoning = True # Not sure for this
             log.info(f"Using LMStudio Mode. Base URL: {lmstudio_base_url}, Model: {model} (API Key: Placeholder)")
         except Exception as e:
             log.error(f"Failed to initialize LMStudio client: {e}", exc_info=True)
+            return None, None, IMAGE_DETAIL
+        
+    elif MODE == "GROQ":
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            log.error("MODE is GROQ but GROQ_API_KEY not found in environment variables.")
+            return None, None, IMAGE_DETAIL
+        try:
+            client = OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=api_key,
+            )
+            model = get_config("GROQ_MODEL", DEFAULT_GROQ_MODEL)
+            log.info(f"Using Groq Mode (via OpenAI client). Model: {model}")
+        except Exception as e:
+            log.error(f"Failed to initialize Groq client: {e}", exc_info=True)
             return None, None, IMAGE_DETAIL
 
     else:
@@ -115,4 +137,4 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.warning(f"Unexpected error verifying {MODE} connection: {e}. Proceeding cautiously.")
 
     log.info(f"LLM Client setup complete. Image Detail: {IMAGE_DETAIL}")
-    return client, model, IMAGE_DETAIL
+    return client, model, IMAGE_DETAIL, supports_reasoning

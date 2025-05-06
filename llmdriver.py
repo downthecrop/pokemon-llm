@@ -12,7 +12,7 @@ import concurrent.futures
 
 from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
-from client_setup import setup_llm_client
+from client_setup import setup_llm_client, DEFAULT_MODE
 from token_coutner import count_tokens, calculate_prompt_tokens
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -22,13 +22,17 @@ log = logging.getLogger('llmdriver')
 ACTION_RE = re.compile(r'^[LRUDABS](?:;[LRUDABS])*(?:;)?$')
 COORD_RE = re.compile(r'^([0-9]),([0-8])$')
 ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE)
-STREAM_TIMEOUT = 30
+
+if(DEFAULT_MODE == "LMSTUDIO" or DEFAULT_MODE == "OLLAMA"):
+    STREAM_TIMEOUT = 120
+else:
+    STREAM_TIMEOUT = 60
 CLEANUP_WINDOW = 5
 
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
-client, MODEL, IMAGE_DETAIL = setup_llm_client()
+client, MODEL, IMAGE_DETAIL, supports_reasoning = setup_llm_client()
 chat_history = [{"role": "system", "content": build_system_prompt("")}]
 response_count = 0
 action_count = 0
@@ -44,9 +48,15 @@ def summarize_and_reset():
 
 
     history_for_summary = []
+
+    # we convert from 'assistant' to 'user' since many API's don't like multiple 'assistant'
+    # messages and will error out.
     for msg in chat_history:
         if msg['role'] == 'assistant':
-            history_for_summary.append(msg)
+            history_for_summary.append({
+                'role': 'user',
+                'content': msg['content']
+            })
 
 
     if not history_for_summary:
@@ -56,10 +66,12 @@ def summarize_and_reset():
         chat_history = [current_system_prompt]
         response_count = 0
         log.info("History reset to system prompt without summarization.")
-        return
+        return None
 
     summary_prompt = get_summary_prompt()
     summary_input_messages = [{"role": "system", "content": summary_prompt}] + history_for_summary
+
+    logging.info(f"Messages: {summary_input_messages}")
 
     summary_input_tokens = calculate_prompt_tokens(summary_input_messages)
     log.info(f"Summarization estimated input tokens: {summary_input_tokens}")
@@ -87,8 +99,8 @@ def summarize_and_reset():
     except Exception as e:
         log.error(f"Error during LLM summarization call: {e}", exc_info=True)
 
-    
     json_object = parse_optional_fenced_json(summary_text)
+    
     log.info(f"LLM Summary generated ({summary_output_tokens} tokens): {str(json_object)}")
 
     new_system_prompt_content = build_system_prompt(summary_text)
@@ -143,15 +155,21 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
     action = None
     analysis_text = None
 
+    # common args for all models
+    base_kwargs = {
+        "model": MODEL,
+        "messages": messages_for_api,
+        "temperature": 1.0,
+        "max_tokens": 2048,
+        "stream": True,
+    }
+
+    # only add reasoning_effort if supported
+    if supports_reasoning:
+        base_kwargs["reasoning_effort"] = "low"
+
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages_for_api,
-            reasoning_effort="low",
-            temperature=1.0,
-            max_tokens=2048,
-            stream=True
-        )
+        response = client.chat.completions.create(**base_kwargs)
 
         iterator = iter(response)
         collected_chunks = []
@@ -358,7 +376,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             tmp = {"log_entry": {"id": log_id_counter, "text": "🔎 Chat history cleaned up."}}
             await broadcast_func(tmp)
 
-            required = ("primayGoal", "secondaryGoal", "tertiaryGoal")
+            required = ("primayGoal", "secondaryGoal", "tertiaryGoal", "otherNotes")
 
             if isinstance(summary_json, dict):
                 # summary_json is dict, safe to check for keys
@@ -369,7 +387,9 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
                         "secondary": summary_json["secondaryGoal"],
                         "tertiary":  summary_json["tertiaryGoal"],
                     }
+                    state["otherGoals"] = summary_json["otherNotes"]
                     update_payload["goals"] = state["goals"]
+                    update_payload["otherGoals"] = state["otherGoals"]
                 else:
                     logging.error(f"Missing required goal keys in summary_json: {missing!r}")
             else:
