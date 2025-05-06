@@ -77,7 +77,7 @@ def cmd_touch(sock, pos):
     if loc is None:
         return
 
-    mid, current_x, current_y, _ = loc
+    mid, current_x, current_y, _, _ = loc
     path_actions = touch_controls_path_find(mid, [int(current_x), int(current_y)], [int(x),int(y)])
     if(path_actions != None):
         send_command(sock, path_actions)

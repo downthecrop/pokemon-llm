@@ -20,7 +20,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - Identify nearby terrain, objects, and NPCs.
         - When in a menu or battle determine the position of your selection cursor.
         - When in a menu or battle avoid chaining inputs. It's important to verify the cursor each step.
-        - Use the grid system to determine relative positions. Your character is always at [4,4] on the screen grid (bottom left cell is [0,0]).
+        - Use the grid system to determine relative positions. Your character is always at [4,4] on the screen grid (TOP left cell is [0,0]).
         - List out all visible objects, NPCs, and terrain features in the screenshot. Translate them to world coordinates (based on your position).
         - Print any text that appears in the screenshot, including dialogue boxes, signs, or other text.
         - The screenshot is the most accurate representation of the game state. Not the minimap or chat context.
@@ -37,8 +37,9 @@ def build_system_prompt(actionSummary: str) -> str:
         - Align yourself properly with doors and stairs before attempting to use them.
         - Remember that you can't move through walls or objects.
         - Prefer walking on grass and paths when possible (lighter color squares).
-        - FACING DIRECTION DOES NOT AFFECT MOVEMENT VALUES, U will ALWAYS move vertically+1 Up, R will always move horizontally+1 Right.
-        - To interact with an NPC or Object you must be facing their tile. (To Interact with a tile above [x=x, y=y+1] you you must be facing north)
+        - REMEMBER VERTICAL COORDINATES ARE INVERTED, U (UP) will DECREASE your y-1. X positions are NOT inverted. R will INCREASE your x+1
+        - FACING DIRECTION DOES NOT AFFECT MOVEMENT VALUES, U will ALWAYS move y-1, R will always move x+1 Right.
+        - To interact with an NPC or Object you must be facing their tile. (To Interact with a tile above [x=x, y=y-1] you you must be facing north)
         - If you repeartedly try the same action and it fails (your position remain the same), explore other options, like moving around the object blocking you.
         - When in a city, orange areas on the minimap idenify buildings you can enter.
         - Use the screenshot to ensure your planned actions are not blocked. Verify with the minimap that your path is walkable.
@@ -83,7 +84,7 @@ def build_system_prompt(actionSummary: str) -> str:
 
         You must select a walkable tile as your destination. If the tile is not walkable (such as a building or a fence) the command is invalid.
         This is navigation based on screen coordinates, not world space coordinates.
-        Remember the grid overlays bottom left cell is [0,0]. You are at [4,4] so count the cells up and down to determine the cell you would like to navigate to.
+        Remember the grid overlays TOP left cell is [0,0]. You are at [4,4] so count the cells up and down to determine the cell you would like to navigate to.
             
         Example:     
         {{"touch":"5,5"}}

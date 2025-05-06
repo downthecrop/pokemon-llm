@@ -156,7 +156,7 @@ def calculate_walkable_special_quadrants(width, height, map_data, blocks, grid_d
                         special_quadrants.add((gx, gy))
                         if debug_tiles: print(f"DEBUG: -> Added ({gx},{gy})", file=sys.stderr)
 
-    print(f"Found {len(special_quadrants)} walkable special quadrants.", file=sys.stderr)
+    #print(f"Found {len(special_quadrants)} walkable special quadrants.", file=sys.stderr)
     return special_quadrants
 
 # --- Pathfinding ---

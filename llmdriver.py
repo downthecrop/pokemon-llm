@@ -22,12 +22,15 @@ log = logging.getLogger('llmdriver')
 ACTION_RE = re.compile(r'^[LRUDABS](?:;[LRUDABS])*(?:;)?$')
 COORD_RE = re.compile(r'^([0-9]),([0-8])$')
 ANALYSIS_RE = re.compile(r"<game_analysis>([\s\S]*?)</game_analysis>", re.IGNORECASE)
+IS_LOCAL = DEFAULT_MODE == "LMSTUDIO" or DEFAULT_MODE == "OLLAMA"
 
-if(DEFAULT_MODE == "LMSTUDIO" or DEFAULT_MODE == "OLLAMA"):
+if(IS_LOCAL):
+    # Often slow inference
     STREAM_TIMEOUT = 120
 else:
     STREAM_TIMEOUT = 60
-CLEANUP_WINDOW = 5
+
+CLEANUP_WINDOW = 10
 
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"

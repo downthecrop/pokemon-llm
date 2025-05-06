@@ -116,12 +116,12 @@ def send_command(sock, cmd: str) -> str:
 def touch_controls_path_find(mapid, currentPos, screenCoords):
     """
     Translate the screentouch to worldspace and gets actions to navigate.
-    Player is always at [4,4] ([0,0] is lower left cell)
+    Player is always at [4,4] ([0,0] is upper left cell)
     """
     x = int(screenCoords[0]) - 4
     y = int(screenCoords[1]) - 4
-    print(f"POS: {int(currentPos[0])},{int(currentPos[1])}, Translated: {x},{y}, Desination: {int(currentPos[0]) + x},{int(currentPos[1]) - y}")
-    destination = [max(int(currentPos[0]) + x, 0), max(int(currentPos[1]) - y, 0)]
+    print(f"POS: {int(currentPos[0])},{int(currentPos[1])}, Translated: {x},{y}, Desination: {int(currentPos[0]) + x},{int(currentPos[1]) + y}")
+    destination = [max(int(currentPos[0]) + x, 0), max(int(currentPos[1]) + y, 0)]
     actions = find_path(DEFAULT_ROM, mapid, currentPos, destination)
     if(actions == None):
         return "[PATH BLOCK OR INVALID]\n"
