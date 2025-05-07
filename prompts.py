@@ -7,7 +7,7 @@ def build_system_prompt(actionSummary: str) -> str:
 
         General Instructions:
 
-        - If given the option to continue or start a new game, always choose to continue.
+        - YOU ARE BEING TESTED. YOUR GOAL IS TO ENTER THE GYM AND DEFEAT BROCK
         - Speak in the first person as if you were the player. You don't see a screenshots or the screen, you see your surroundings.
         - Do not call it a screenshot or the screen. It's your world.
 
