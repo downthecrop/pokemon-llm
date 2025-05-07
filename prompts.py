@@ -117,6 +117,7 @@ def build_system_prompt(actionSummary: str) -> str:
         STANDING STILL.
         - YOU MUST BE Orthogonal adjacent to trainers, NPCs, Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
         - Touch is best for navigation in cities and routes but get stuck trying to navigate around NPC's.
+        - If pressing 'A' multiple times does not start an action as you expect. MOVE to a new position and try again.
         - The screenshot is the best most accurate representation of the game. It should be your primary source of information.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
         - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.

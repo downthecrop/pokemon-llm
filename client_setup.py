@@ -9,9 +9,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ
+DEFAULT_MODE = "OPENAI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ
 DEFAULT_IMAGE_DETAIL = "low" # high or low
-DEFAULT_OPENAI_MODEL = "gpt-4.1-nano"
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
 DEFAULT_OLLAMA_MODEL = "llava-phi3"
 DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
@@ -55,7 +55,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
         try:
             client = OpenAI(api_key=api_key, timeout=TIMEOUT)
             model = get_config("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
-            supports_reasoning = True
+            #supports_reasoning = True
             log.info(f"Using OpenAI Mode. Model: {model}")
         except Exception as e:
             log.error(f"Failed to initialize OpenAI client: {e}", exc_info=True)
