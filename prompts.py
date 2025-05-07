@@ -89,7 +89,7 @@ def build_system_prompt(actionSummary: str) -> str:
         Example:     
         {{"touch":"5,5"}}
 
-        This would move the player right, and up. The pathfinder will navigate around objects if they are in the way.
+        This would move the player RIGHT, and DOWN (y=y+1, x=x+1). The pathfinder will navigate around objects if they are in the way.
         The pathfinder cannot navigate around NPC's. Use your vision to get yourself unstuck if your position stays the same.
         Touch can only be used for navigation not UI elements or interacting with NPC's. You will need to use normal actions to
         face an NPC's tile.
@@ -115,6 +115,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - The screenshot is the best most accurate representation of the game. It should be your primary source of information.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
         - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
+        - If you have tried the same movement action multiple times in a row attempt (location stayed the same) verify your path or try a touch command.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
 
