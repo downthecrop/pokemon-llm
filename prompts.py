@@ -110,11 +110,15 @@ def build_system_prompt(actionSummary: str) -> str:
         Remember:
         - Always use both the screenshot and minimap for navigation is available.
         - Be careful to align properly with doors and entrances/exits.
-        - Idel (No action/touch) is not an acceptable decision.
+        - Idle (No action/touch) is NOT an acceptable decision. YOU MUST INCLUDE A BUTTON PRESS OF SOME KIND.
+        - Trainers and NPCs MUST be [0,-1], [0,1], [1,0], [-1,0] TO INTERACT OR TRIGGER THEM. THE GAME WILL NEVER TRIGGER SOMETHING WHILE YOU ARE
+        STANDING STILL.
+        - YOU MUST BE Orthogonal adjacent to trainers, NPCs, Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
         - Touch is best for navigation in cities and routes but get stuck trying to navigate around NPC's.
         - The screenshot is the best most accurate representation of the game. It should be your primary source of information.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
         - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
+        - THE GAME WILL NEVER TRIGGER EVENTS (ROOM TRANSITIONS, TRAINER BATTLES) ON ITS OWN. YOU MUST MOVE INTO THEM.
         - If you have tried the same movement action multiple times in a row attempt (location stayed the same) verify your path or try a touch command.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.

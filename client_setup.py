@@ -17,7 +17,7 @@ DEFAULT_OLLAMA_MODEL = "llava-phi3"
 DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-TIMEOUT = httpx.Timeout(15.0, read=5.0, write=10.0, connect=3.0) 
+TIMEOUT = httpx.Timeout(15.0, read=15.0, write=10.0, connect=10.0) 
 
 load_dotenv() # Load variables from .env file
 

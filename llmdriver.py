@@ -10,6 +10,7 @@ import socket
 import math
 import re
 import concurrent.futures
+import functools                   # NEW
 
 from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
@@ -43,6 +44,28 @@ action_count = 0
 tokens_used_session = 0
 start_time = datetime.datetime.now()
 
+
+# ─── Constants ────────────────────────────────────────────────────────────────
+LLM_TOTAL_TIMEOUT = STREAM_TIMEOUT + 10     # e.g. 70 s / 130 s
+
+# ─── Helper ───────────────────────────────────────────────────────────────────
+async def call_llm_with_timeout(state_data: dict,
+                                llm_timeout: float = STREAM_TIMEOUT,
+                                total_timeout: float = LLM_TOTAL_TIMEOUT):
+    """
+    Run `llm_stream_action` in a worker thread and abort the whole thing
+    (token‑counting, API call, streaming, parsing…) after `total_timeout` s.
+    """
+    loop = asyncio.get_running_loop()
+    fn   = functools.partial(llm_stream_action, state_data, llm_timeout)
+
+    try:
+        # run blocking LLM code in a thread, wait with an asyncio timeout
+        return await asyncio.wait_for(loop.run_in_executor(None, fn),
+                                      timeout=total_timeout)
+    except asyncio.TimeoutError:
+        log.error(f"llm_stream_action exceeded {total_timeout}s – skipping cycle.")
+        return None, None, None
 
 def summarize_and_reset():
     """Condenses history, updates system prompt, resets history, accounts for tokens."""
@@ -184,9 +207,9 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
         # --- first‐chunk timeout
         try:
             chunk = next_with_timeout(iterator, timeout)
-        except TimeoutError as toe:
-            log.warning(str(toe))
-            raise
+        except:
+            log.warning("TIMEOUT")
+            return None, None, None
 
         # process first chunk
         delta = chunk.choices[0].delta.content
@@ -261,18 +284,9 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
             if lines and ACTION_RE.match(lines[-1]) and not lines[-1].startswith('{'):
                 action = lines[-1]
 
-    except TimeoutError:
-        # single retry on any timeout
-        log.warning("Timeout encountered, retrying llm_stream_action once…")
-        try:
-            return llm_stream_action(state_data, timeout)
-        except TimeoutError:
-            log.error("Second timeout — aborting LLM call.")
-            return None, None, False
-
     except Exception as e:
         log.error(f"Error during LLM streaming: {e}", exc_info=True)
-        return None, None, False
+        return None, None, None
 
     if action is None:
         log.error("No valid action extracted from LLM output.")
@@ -374,7 +388,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         log_id_counter = state.get("log_id_counter", 0) + 1
         state["log_id_counter"] = log_id_counter
 
-        action, game_analysis, summary_json = llm_stream_action(llm_input_state)
+        action, game_analysis, summary_json = await call_llm_with_timeout(llm_input_state)
 
         if summary_json is not None:
             tmp = {"log_entry": {"id": log_id_counter, "text": "🔎 Chat history cleaned up."}}
