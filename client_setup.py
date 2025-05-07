@@ -3,6 +3,7 @@ import os
 import logging
 from openai import OpenAI, APIError
 from dotenv import load_dotenv
+import httpx
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llm_client_setup')
@@ -15,6 +16,8 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
 DEFAULT_OLLAMA_MODEL = "llava-phi3"
 DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+TIMEOUT = httpx.Timeout(15.0, read=5.0, write=10.0, connect=3.0) 
 
 load_dotenv() # Load variables from .env file
 
@@ -50,7 +53,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.error("MODE is OPENAI but OPENAI_API_KEY not found in environment variables.")
             return None, None, IMAGE_DETAIL
         try:
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(api_key=api_key, timeout=TIMEOUT)
             model = get_config("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
             supports_reasoning = True
             log.info(f"Using OpenAI Mode. Model: {model}")
@@ -67,8 +70,8 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
         try:
             client = OpenAI(
                 api_key=api_key,
-                # Using the OpenAI compatibility endpoint for Gemini
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                timeout=TIMEOUT
             )
             model = get_config("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
             supports_reasoning = True
@@ -114,6 +117,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             client = OpenAI(
                 base_url="https://api.groq.com/openai/v1",
                 api_key=api_key,
+                timeout=TIMEOUT
             )
             model = get_config("GROQ_MODEL", DEFAULT_GROQ_MODEL)
             log.info(f"Using Groq Mode (via OpenAI client). Model: {model}")
