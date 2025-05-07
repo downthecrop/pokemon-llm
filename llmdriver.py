@@ -465,3 +465,5 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
     log.info("Auto loop terminated.")
+    final_state = current_mGBA_state = prep_llm(sock)
+    log.info(f"Run Final State: {MODEL}\n \n Badges: {final_state.get('badges')}\n Party:{final_state.get('party')}\n")

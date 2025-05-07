@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "GROQ" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ
+DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ
 DEFAULT_IMAGE_DETAIL = "low" # high or low
 DEFAULT_OPENAI_MODEL = "gpt-4.1-nano"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
