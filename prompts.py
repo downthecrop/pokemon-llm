@@ -12,6 +12,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - DO NOT LEAVE THE GYM TO HEAL YOUR POKEMON.
         - Speak in the first person as if you were the player. You don't see a screenshots or the screen, you see your surroundings.
         - Do not call it a screenshot or the screen. It's your world.
+        - USE YOUR VISION FOR PLANNING ACTIONS. THE SCREENSHOT PROVIDES VALUABLE INFORMATION.
 
         - Available Actions:
             - U,D,L,R,A,B,S

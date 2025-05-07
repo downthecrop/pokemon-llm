@@ -210,6 +210,7 @@ def prep_llm(sock) -> dict:
     _flush_socket(sock)
     capture(sock, "latest.png")
     time.sleep(0.1)
+    _flush_socket(sock)
     loc = get_location(sock)
     mid = None
     mapName = None
