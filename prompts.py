@@ -40,6 +40,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - Remember that you can't move through walls or objects.
         - Prefer walking on grass and paths when possible (lighter color squares).
         - REMEMBER VERTICAL COORDINATES ARE INVERTED, U (UP) will DECREASE your y-1. X positions are NOT inverted. R will INCREASE your x+1
+        - U will move you UP on the screen but decrease your internal y coordinate. D will move you DOWN on the screen but increase the internal y coordinate.
         - FACING DIRECTION DOES NOT AFFECT MOVEMENT VALUES, U will ALWAYS move y-1, R will always move x+1 Right.
         - To interact with an NPC or Object you must be facing their tile. (To Interact with a tile above [x=x, y=y-1] you you must be facing north)
         - If you repeartedly try the same action and it fails (your position remain the same), explore other options, like moving around the object blocking you.
