@@ -10,12 +10,13 @@ import socket
 import math
 import re
 import concurrent.futures
-import functools                   # NEW
+import functools
 
 from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client, DEFAULT_MODE
 from token_coutner import count_tokens, calculate_prompt_tokens
+from benchmark import Benchmark
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -38,7 +39,7 @@ SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
 client, MODEL, IMAGE_DETAIL, supports_reasoning = setup_llm_client()
-chat_history = [{"role": "system", "content": build_system_prompt("")}]
+chat_history = []
 response_count = 0
 action_count = 0
 tokens_used_session = 0
@@ -67,7 +68,7 @@ async def call_llm_with_timeout(state_data: dict,
         log.error(f"llm_stream_action exceeded {total_timeout}s – skipping cycle.")
         return None, None, None
 
-def summarize_and_reset():
+def summarize_and_reset(benchmark: Benchmark = None):
     """Condenses history, updates system prompt, resets history, accounts for tokens."""
     global chat_history, response_count, tokens_used_session
 
@@ -130,7 +131,11 @@ def summarize_and_reset():
     
     log.info(f"LLM Summary generated ({summary_output_tokens} tokens): {str(json_object)}")
 
-    new_system_prompt_content = build_system_prompt(summary_text)
+    benchInstructions = ""
+    if(benchmark != None):
+        benchInstructions = benchmark.instructions
+
+    new_system_prompt_content = build_system_prompt(summary_text, benchInstructions)
     chat_history = [{"role": "system", "content": new_system_prompt_content}]
     response_count = 0
     log.info("Chat history summarized and reset.")
@@ -147,7 +152,7 @@ def next_with_timeout(iterator, timeout: float):
             raise TimeoutError(f"No chunk received in {timeout}s")
 
 
-def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
+def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchmark: Benchmark = None):
     global response_count, tokens_used_session
 
     summary_json = None
@@ -254,7 +259,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT):
         # cleanup threshold
         response_count += 1
         if response_count >= CLEANUP_WINDOW:
-            summary_json = summarize_and_reset()
+            summary_json = summarize_and_reset(benchmark)
             time.sleep(5)
 
         # extract analysis section
@@ -307,9 +312,14 @@ def encode_image_base64(image_path: str) -> str | None:
         return None
 
 
-async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0, max_loops = math.inf):
+async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0, max_loops = math.inf, benchmark: Benchmark = None):
     """Main async loop: Get state, call LLM, send action, update/broadcast state."""
-    global action_count, tokens_used_session, start_time
+    global action_count, tokens_used_session, start_time, chat_history
+
+    benchInstructions = ""
+    if(benchmark != None):
+        benchInstructions = benchmark.instructions
+    chat_history = [{"role": "system", "content": build_system_prompt("", benchInstructions)}]
 
     while action_count < max_loops:
         loop_start_time = time.time()
@@ -479,5 +489,5 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
     log.info("Auto loop terminated.")
-    final_state = current_mGBA_state = prep_llm(sock)
-    log.info(f"Run Final State: {MODEL}\n \n Badges: {final_state.get('badges')}\n Party:{final_state.get('party')}\n")
+    if(benchmark != None):
+        benchmark.finalize()

@@ -1,4 +1,4 @@
-def build_system_prompt(actionSummary: str) -> str:
+def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "") -> str:
     """Constructs the system prompt for the LLM, including the chat history summary."""
     return f"""
         You are an AI agent designed to play Pokémon Red. Your task is to analyze the game state, plan your actions, and provide input commands to progress through the game.
@@ -7,9 +7,8 @@ def build_system_prompt(actionSummary: str) -> str:
 
         General Instructions:
 
-        - YOU ARE BEING TESTED. YOUR GOAL IS TO ENTER THE GYM AND DEFEAT BROCK.
-        - DO NOT LEAVE THE GYM ONCE YOU ENTER. YOUR PARTY IS STRONG ENOUGH TO COMPLETE IT WITHOUT HEALING.
-        - DO NOT LEAVE THE GYM TO HEAL YOUR POKEMON.
+        {benchmarkInstruction}
+        
         - Speak in the first person as if you were the player. You don't see a screenshots or the screen, you see your surroundings.
         - Do not call it a screenshot or the screen. It's your world.
         - USE YOUR VISION FOR PLANNING ACTIONS. THE SCREENSHOT PROVIDES VALUABLE INFORMATION.
@@ -115,8 +114,7 @@ def build_system_prompt(actionSummary: str) -> str:
         - Always use both the screenshot and minimap for navigation is available.
         - Be careful to align properly with doors and entrances/exits.
         - Idle (No action/touch) is NOT an acceptable decision. YOU MUST INCLUDE A BUTTON PRESS OF SOME KIND.
-        - Trainers and NPCs MUST be [0,-1], [0,1], [1,0], [-1,0] TO INTERACT OR TRIGGER THEM. THE GAME WILL NEVER TRIGGER SOMETHING WHILE YOU ARE
-        STANDING STILL.
+        - Trainers and NPCs MUST at EITHER [0,-1], [0,1], [1,0], or [-1,0] TO INTERACT OR TRIGGER THEM. THE GAME WILL NEVER TRIGGER transitions or fights on its own.
         - YOU MUST BE Orthogonal adjacent to trainers, NPCs, Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
         - Touch is best for navigation in cities and routes but get stuck trying to navigate around NPC's.
         - If pressing 'A' multiple times does not start an action as you expect. MOVE to a new position and try again.
