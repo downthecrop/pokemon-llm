@@ -516,7 +516,7 @@ end
 
 -- From https://github.com/mgba-emu/mgba/blob/master/res/scripts/input-display.lua
 input_display = {
-	anchor = "top",
+	anchor = "topLeft",
 	offset = {
 		x = 0,
 		y = 0,
