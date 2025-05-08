@@ -4,22 +4,21 @@ import time
 import os
 import sys
 import asyncio
-import json
 import logging
-from helpers import DEFAULT_ROM
 
+from helpers import DEFAULT_ROM
 from interactive import interactive_console
 from llmdriver import run_auto_loop, MODEL
 from helpers import send_command
-
-# Import from the new websocket_service.py
 from websocket_service import broadcast_message, run_server_forever as start_websocket_service
+from benchmark import load
 
 # --- Configuration (excluding WebSocket specific) ---
 PORT = 8888 # mGBA socket port
 LOAD_SAVESTATE = False # should we load a savestate? Updated by CLI
 MGBA_EXE = '/Applications/mGBA.app/Contents/MacOS/mGBA' # Adjust if needed
 LUA_SCRIPT = './socketserver.lua' # Adjust if needed
+benchmark_path = None   # default: no external benchmark
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s: %(message)s')
 log = logging.getLogger("main")
@@ -136,11 +135,21 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
             websocket_task = asyncio.create_task(start_websocket_service(state), name="WebSocketService")
             tasks_to_await.append(websocket_task)
 
+            benchmark = None
+            if benchmark_path is not None:
+                try:
+                    benchmark = load(benchmark_path)
+                    log.info("Loaded custom benchmark from %s → %s", benchmark_path, type(benchmark).__name__)
+                    max_loops_arg = benchmark.max_loops
+                except Exception as e:
+                    log.critical("Failed to load benchmark file: %s", e, exc_info=True)
+                    sys.exit(1)
+
             # Start the LLM driver loop (passing the imported broadcast_message function)
             if max_loops_arg is not None:
                 log.info(f"Starting LLM driver loop (max_loops: {max_loops_arg})...")
                 llm_task = asyncio.create_task(
-                    run_auto_loop(sock, state, broadcast_message, interval=13.0, max_loops=max_loops_arg),
+                    run_auto_loop(sock, state, broadcast_message, interval=13.0, max_loops=max_loops_arg, benchmark=benchmark),
                     name="LLMDriverLoop"
                 )
             else:
@@ -250,6 +259,12 @@ if __name__ == '__main__':
             LOAD_SAVESTATE = True 
             log.info("Command line argument: --load_savestate detected. LOAD_SAVESTATE set to True.")
             i += 1
+        elif arg == '--benchmark':
+            if i + 1 >= len(cli_args):
+                log.error("--benchmark requires a file path argument")
+                sys.exit(1)
+            benchmark_path = cli_args[i + 1]
+            i += 2
         elif arg == '--max_loops':
             if i + 1 < len(cli_args):
                 try:

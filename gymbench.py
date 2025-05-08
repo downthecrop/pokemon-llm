@@ -1,3 +1,4 @@
+# -- gymbench.py --
 import logging
 from benchmark import Benchmark
 
@@ -18,4 +19,4 @@ bench_instructions = """
 """
 
 def init():
-    return GymBenchmark(bench_instructions, 500)
+    return GymBenchmark(bench_instructions, 5)

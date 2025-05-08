@@ -319,6 +319,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
     benchInstructions = ""
     if(benchmark != None):
         benchInstructions = benchmark.instructions
+        logging.info(f"Added bench instructions: {benchInstructions}")
     chat_history = [{"role": "system", "content": build_system_prompt("", benchInstructions)}]
 
     while action_count < max_loops:
@@ -490,4 +491,4 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
     log.info("Auto loop terminated.")
     if(benchmark != None):
-        benchmark.finalize()
+        benchmark.finalize(current_mGBA_state, MODEL)
