@@ -1,12 +1,9 @@
-# --- run.py ---
-
 import subprocess
 import socket
 import time
 import os
 import sys
 import asyncio
-import websockets
 import json
 import logging
 from helpers import DEFAULT_ROM
@@ -15,17 +12,17 @@ from interactive import interactive_console
 from llmdriver import run_auto_loop, MODEL
 from helpers import send_command
 
-# --- WebSocket Server Configuration ---
-WEBSOCKET_PORT = 8765
-PORT = 8888
+# Import from the new websocket_service.py
+from websocket_service import broadcast_message, run_server_forever as start_websocket_service
+
+# --- Configuration (excluding WebSocket specific) ---
+PORT = 8888 # mGBA socket port
 LOAD_SAVESTATE = False # should we load a savestate? Updated by CLI
 MGBA_EXE = '/Applications/mGBA.app/Contents/MacOS/mGBA' # Adjust if needed
 LUA_SCRIPT = './socketserver.lua' # Adjust if needed
 
-connected_clients = set()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s: %(message)s')
-
-log = logging.getLogger('run.py')
+log = logging.getLogger("main")
 
 # Initialize state - llmdriver will update this
 state = {
@@ -42,77 +39,6 @@ state = {
     "minimapLocation": "Unknown",
     "log_entries": []
 }
-
-async def broadcast(message):
-    """Sends a JSON message to all connected clients."""
-    if not connected_clients:
-        return
-
-    message_json = json.dumps(message)
-    # Use create_task for better concurrency handling if many clients exist
-    send_tasks = [asyncio.create_task(client.send(message_json)) for client in connected_clients]
-    if not send_tasks:
-        return
-
-    results = await asyncio.gather(*send_tasks, return_exceptions=True)
-
-    disconnected_clients = set()
-    clients_list = list(connected_clients) # Create stable list for indexing
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            # Ensure index is valid before accessing clients_list
-            if i < len(clients_list):
-                client = clients_list[i]
-                log.warning(f"WS: Failed to send to client {client.remote_address}: {result}. Removing.")
-                disconnected_clients.add(client)
-            else:
-                 # This case should theoretically not happen with gather but added defensively
-                 log.error(f"WS: Index {i} out of bounds for clients list of size {len(clients_list)} during error handling.")
-
-    connected_clients.difference_update(disconnected_clients)
-
-
-async def send_full_state(websocket):
-    """Sends the complete current state to a newly connected client."""
-    try:
-        # Ensure state is JSON serializable before sending
-        state_copy = json.loads(json.dumps(state)) # Simple deep copy via JSON
-        await websocket.send(json.dumps(state_copy))
-        log.info(f"WS: Sent full initial state to {websocket.remote_address}")
-    except websockets.exceptions.ConnectionClosed:
-        log.warning(f"WS: Failed to send initial state to {websocket.remote_address}, client disconnected before send completed.")
-    except TypeError as e:
-         log.error(f"WS: State is not JSON serializable: {e}. State: {state}", exc_info=True)
-    except Exception as e:
-         log.error(f"WS: Error sending full state to {websocket.remote_address}: {e}", exc_info=True)
-
-
-async def handler(websocket):
-    """Handles a new WebSocket connection."""
-    log.info(f"WS: Client connected: {websocket.remote_address}")
-    connected_clients.add(websocket)
-    try:
-        await send_full_state(websocket)
-        # Keep connection open, listen for messages (currently ignored)
-        async for message in websocket:
-            log.info(f"WS: Received message from {websocket.remote_address}: {message} (ignored)")
-            # Future: Handle client commands here (e.g., request state refresh, send input?)
-    except websockets.exceptions.ConnectionClosedOK:
-        log.info(f"WS: Client {websocket.remote_address} disconnected gracefully.")
-    except websockets.exceptions.ConnectionClosedError as e:
-        log.warning(f"WS: Client {websocket.remote_address} connection closed with error: {e}")
-    except Exception as e:
-        log.error(f"WS: Error in handler for {websocket.remote_address}: {e}", exc_info=True)
-    finally:
-        connected_clients.discard(websocket)
-        log.info(f"WS: Client disconnected: {websocket.remote_address}. Remaining clients: {len(connected_clients)}")
-
-async def start_websocket_server():
-    """Starts the WebSocket server."""
-    # Updates now come from llmdriver via broadcast calls
-    async with websockets.serve(handler, "localhost", WEBSOCKET_PORT):
-        log.info(f"WebSocket server started on ws://localhost:{WEBSOCKET_PORT}")
-        await asyncio.Future() # Run forever until cancelled
 
 def start_mgba_with_scripting(rom_path=None, port=PORT):
     rom_path = rom_path or os.path.join(os.path.dirname(__file__), DEFAULT_ROM)
@@ -206,21 +132,21 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
 
         if auto:
             log.info("Auto mode enabled. Starting WebSocket server and LLM driver.")
-            # Start the WebSocket server
-            websocket_task = asyncio.create_task(start_websocket_server(), name="WebSocketServer")
+            # Start the WebSocket server (passing the shared 'state' dictionary)
+            websocket_task = asyncio.create_task(start_websocket_service(state), name="WebSocketService")
             tasks_to_await.append(websocket_task)
 
-            # Start the LLM driver loop
+            # Start the LLM driver loop (passing the imported broadcast_message function)
             if max_loops_arg is not None:
                 log.info(f"Starting LLM driver loop (max_loops: {max_loops_arg})...")
                 llm_task = asyncio.create_task(
-                    run_auto_loop(sock, state, broadcast, interval=13.0, max_loops=max_loops_arg),
+                    run_auto_loop(sock, state, broadcast_message, interval=13.0, max_loops=max_loops_arg),
                     name="LLMDriverLoop"
                 )
             else:
                 log.info("Starting LLM driver loop...")
                 llm_task = asyncio.create_task(
-                    run_auto_loop(sock, state, broadcast, interval=13.0), # Original call
+                    run_auto_loop(sock, state, broadcast_message, interval=13.0), # Original call
                     name="LLMDriverLoop"
                 )
             tasks_to_await.append(llm_task)
@@ -265,15 +191,10 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
              if task and not task.done():
                  log.info(f"Cancelling task {task.get_name()} during final cleanup.")
                  task.cancel()
-        # Wait for cancellations to complete
-        # Filter for tasks that were actually attempted to be cancelled and are now in cancelled state.
-        # gather on already completed/cancelled tasks might behave differently or raise.
-        # A more robust way:
-        pending_cancellations = [t for t in tasks_to_await if t and t.cancelled()] # Check if already cancelled
-        for t in tasks_to_await: # For those not yet confirmed cancelled but cancel was called
-            if t and not t.done() and t not in pending_cancellations: # Should be caught by earlier cancel()
-                # This indicates cancel() didn't immediately mark as cancelled, or task is stuck
-                # Add to list to await, but this scenario is less common with standard asyncio usage
+        
+        pending_cancellations = [t for t in tasks_to_await if t and t.cancelled()] 
+        for t in tasks_to_await: 
+            if t and not t.done() and t not in pending_cancellations: 
                 pending_cancellations.append(t)
         
         if pending_cancellations:
@@ -282,12 +203,10 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
 
         if sock:
             try:
-                # Attempt graceful shutdown of Lua side if possible
                 log.info("Sending quit command to mGBA script...")
                 try:
                     sock.sendall(b"quit\n")
-                    # Give it a moment to process before closing socket
-                    await asyncio.sleep(0.2) # Use asyncio.sleep in async context
+                    await asyncio.sleep(0.2) 
                 except OSError as send_err:
                      log.warning(f"Could not send quit command to mGBA (socket likely closed): {send_err}")
 
@@ -299,14 +218,13 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
             log.info("Terminating mGBA process...")
             proc.terminate()
             try:
-                # Use asyncio.to_thread for potentially blocking wait in async context
                 await asyncio.to_thread(proc.wait, timeout=5)
                 log.info("mGBA process terminated.")
             except subprocess.TimeoutExpired:
                 log.warning("mGBA process did not terminate gracefully, killing.")
                 proc.kill()
                 try:
-                    await asyncio.to_thread(proc.wait) # Wait for kill
+                    await asyncio.to_thread(proc.wait) 
                 except Exception as wait_err:
                     log.error(f"Error waiting for mGBA process after kill: {wait_err}")
             except Exception as e:
@@ -320,7 +238,6 @@ if __name__ == '__main__':
     auto_mode = False
     parsed_max_loops = None
     # LOAD_SAVESTATE is a global, initialized to False at the top of the script.
-    # It will be modified here if --load_savestate is present.
 
     cli_args = sys.argv[1:]
     i = 0
@@ -330,7 +247,7 @@ if __name__ == '__main__':
             auto_mode = True
             i += 1
         elif arg == '--load_savestate':
-            LOAD_SAVESTATE = True # Modify the global variable
+            LOAD_SAVESTATE = True 
             log.info("Command line argument: --load_savestate detected. LOAD_SAVESTATE set to True.")
             i += 1
         elif arg == '--max_loops':
@@ -342,7 +259,7 @@ if __name__ == '__main__':
                         sys.exit(1)
                     parsed_max_loops = value
                     log.info(f"Command line argument: --max_loops set to {parsed_max_loops}.")
-                    i += 2 # Consumed arg and its value
+                    i += 2 
                 except ValueError:
                     log.error(f"--max_loops expects an integer value, got: {cli_args[i+1]}")
                     sys.exit(1)
@@ -351,9 +268,6 @@ if __name__ == '__main__':
                 sys.exit(1)
         else:
             log.warning(f"Unknown command line argument: {arg}")
-            # You might want to print usage and exit here for unknown arguments:
-            # print(f"Usage: python {sys.argv[0]} [--auto] [--load_savestate] [--max_loops <number>]")
-            # sys.exit(1)
             i += 1
 
     if auto_mode:
@@ -368,14 +282,10 @@ if __name__ == '__main__':
     else:
         # --- Synchronous Mode ---
         log.info("Interactive mode enabled. WebSocket server and LLM driver will NOT run.")
-        # Note: parsed_max_loops is not used in interactive mode.
-        # LOAD_SAVESTATE (global) will be respected by start_mgba_with_scripting.
         proc = sock = None
         try:
-            # Start mGBA (synchronous is fine here)
-            proc, sock = start_mgba_with_scripting() # This will use the global LOAD_SAVESTATE
-            # Run the interactive console (which is blocking)
-            interactive_console(sock) # Call the imported function
+            proc, sock = start_mgba_with_scripting() 
+            interactive_console(sock) 
         except KeyboardInterrupt:
              log.info("KeyboardInterrupt received, stopping interactive console...")
         except SystemExit:
@@ -386,11 +296,10 @@ if __name__ == '__main__':
             log.info("Cleaning up synchronous resources...")
             if sock:
                 try:
-                    # Attempt graceful shutdown of Lua side
                     log.info("Sending quit command to mGBA script...")
                     try:
                         sock.sendall(b"quit\n")
-                        time.sleep(0.2) # Short pause
+                        time.sleep(0.2) 
                     except OSError as send_err:
                         log.warning(f"Could not send quit command to mGBA (socket likely closed): {send_err}")
                     sock.close()
@@ -406,7 +315,7 @@ if __name__ == '__main__':
                 except subprocess.TimeoutExpired:
                     log.warning("mGBA process did not terminate gracefully, killing.")
                     proc.kill()
-                    proc.wait() # Wait for kill
+                    proc.wait() 
                 except Exception as e:
                      log.error(f"Error terminating mGBA process: {e}")
             log.info("--- Interactive run finished ---")
