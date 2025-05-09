@@ -124,7 +124,7 @@ def touch_controls_path_find(mapid, currentPos, screenCoords):
     destination = [max(int(currentPos[0]) + x, 0), max(int(currentPos[1]) + y, 0)]
     actions = find_path(DEFAULT_ROM, mapid, currentPos, destination)
     if(actions == None):
-        return "[PATH BLOCK OR INVALID]\n"
+        return "[PATH BLOCKED OR INVALID UNWALKABLE DESTINATION]\n"
     return actions # None if there is no valid path
     
 

@@ -19,4 +19,4 @@ bench_instructions = """
 """
 
 def init():
-    return GymBenchmark(bench_instructions, 5)
+    return GymBenchmark(bench_instructions, 500)

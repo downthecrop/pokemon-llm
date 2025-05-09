@@ -87,7 +87,7 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
 
         You must select a walkable tile as your destination. If the tile is not walkable (such as a building or a fence) the command is invalid.
         This is navigation based on screen coordinates, not world space coordinates.
-        Remember the grid overlays TOP left cell is [0,0]. You are at [4,4] so count the cells up and down to determine the cell you would like to navigate to.
+        Remember the grid overlays TOP left cell is [0,0]. You are at [4,4] (x,y) so count the cells up and down to determine the cell you would like to navigate to.
             
         Example:     
         {{"touch":"5,5"}}
@@ -115,14 +115,16 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         - Be careful to align properly with doors and entrances/exits.
         - Idle (No action/touch) is NOT an acceptable decision. YOU MUST INCLUDE A BUTTON PRESS OF SOME KIND.
         - Trainers and NPCs MUST at EITHER [0,-1], [0,1], [1,0], or [-1,0] TO INTERACT OR TRIGGER THEM. THE GAME WILL NEVER TRIGGER transitions or fights on its own.
-        - YOU MUST BE Orthogonal adjacent to trainers, NPCs, Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
-        - Touch is best for navigation in cities and routes but get stuck trying to navigate around NPC's.
+        - YOU MUST BE Orthogonally adjacent to trainers, NPCs, Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
+        - Touch is best for navigation but get stuck trying to navigate around NPC's.
         - If pressing 'A' multiple times does not start an action as you expect. MOVE to a new position and try again.
         - The screenshot is the best most accurate representation of the game. It should be your primary source of information.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
-        - Avoid repeatedly walking into walls or obstacles. If an action yields no result, try a different approach.
+        - If an action yields no result, try a different approach.
         - THE GAME WILL NEVER TRIGGER EVENTS (ROOM TRANSITIONS, TRAINER BATTLES) ON ITS OWN. YOU MUST MOVE INTO THEM.
         - If you have tried the same movement action multiple times in a row attempt (location stayed the same) verify your path or try a touch command.
+        - Use the game screenshot as your primary source of information. It is always the most useful source of information.
+        - USE YOUR PREVIOUS ACTIONS TO HELP YOU AVOID GETTING STUCK IN A LOOP.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
 
