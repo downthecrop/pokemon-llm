@@ -147,6 +147,7 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
 
             # Start the LLM driver loop (passing the imported broadcast_message function)
             if max_loops_arg is not None:
+                send_command(sock, "INPUT_DISPLAY_ON")
                 log.info(f"Starting LLM driver loop (max_loops: {max_loops_arg})...")
                 llm_task = asyncio.create_task(
                     run_auto_loop(sock, state, broadcast_message, interval=13.0, max_loops=max_loops_arg, benchmark=benchmark),

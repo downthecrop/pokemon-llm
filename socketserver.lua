@@ -4,6 +4,7 @@
 -- Extra      : CAP  ➜ send ARGB raster (length header + pixels)
 --           : READRANGE <address> <length>  ➜ send memory bytes (length header + data)
 --           : LOADSTATE <slot> [flags] ➜ load save state (flags default to 29)
+--           : INPUT_DISPLAY_ON ➜ control input display visibility
 -- Copy to …/mGBA.app/Contents/Resources/scripts/   Run with:
 --     mGBA --script socketserver.lua <rom>
 -- modified from https://github.com/mgba-emu/mgba/blob/master/res/scripts/socketserver.lua
@@ -19,6 +20,8 @@ local QUEUE_SPACING = 30     -- frames between queued inputs
 --------------------------------------------------------------------------
 local socket, console, emu = socket, console, emu   -- mGBA globals
 local string_pack = string.pack                     -- Lua ≥5.3
+-- Globals needed for the input display feature later in the script
+local C, canvas, image, util, callbacks = C, canvas, image, util, callbacks
 
 --------------------------------------------------------------------------
 --  KEY MAP & ALIASES ------------------------------------------------------
@@ -48,6 +51,54 @@ local function table_to_string(tbl)
 end
 
 --------------------------------------------------------------------------
+--  INPUT DISPLAY CONTROL STATE & FUNCTION -------------------------------
+--------------------------------------------------------------------------
+local g_input_display_is_visible = false -- Default: Input display is OFF
+
+local function setInputDisplayVisibility(visible)
+    if g_input_display_is_visible == visible then
+        if visible and input_display and input_display.state and input_display.state.overlay then
+             console:log("[INFO] Input Display is already ON.")
+             return
+        elseif not visible then
+             console:log("[INFO] Input Display is already OFF.")
+             return
+        end
+    end
+
+    g_input_display_is_visible = visible
+
+    if not input_display or not input_display.state then
+        console:error("[ERROR] setInputDisplayVisibility: input_display or input_display.state is nil! Cannot proceed.")
+        g_input_display_is_visible = not visible
+        return
+    end
+
+    if g_input_display_is_visible then -- Turning ON
+        console:log("[INFO] Input Display: Turning ON.")
+        if input_display.state.reset then
+            input_display.state.reset()
+        else
+            console:error("[ERROR] setInputDisplayVisibility: input_display.state.reset is nil when turning ON!")
+            g_input_display_is_visible = false 
+        end
+    else -- Turning OFF
+        console:log("[INFO] Input Display: Turning OFF.")
+        if input_display.state.overlay then
+            if input_display.state.painter then
+                console:log("[DEBUG] Input Display: Clearing painter and updating overlay.")
+                input_display.state.painter:clear(0x00000000) 
+                input_display.state.overlay:update()
+            else
+                console:log("[WARN] Input Display: Painter is nil when trying to turn OFF, but overlay exists.")
+            end
+        else
+            console:log("[DEBUG] Input Display: Overlay is nil when trying to turn OFF. Nothing to clear visually.")
+        end
+    end
+end
+
+--------------------------------------------------------------------------
 --  UTILITY: CHECK INTERFACE STATES (GEN1) -------------------------------
 -- menu: CC51–CC52, battle: CCD5, conversation: CC00
 --------------------------------------------------------------------------
@@ -60,14 +111,11 @@ local function isInMenu()
 end
 
 local function isInBattle()
-   -- D057: non-zero whenever the battle engine is active
    local flag = emu:readRange(0xD057, 1)
    local result = flag and string.byte(flag, 1) ~= 0
    return result
 end
 
--- CC50 == 0x5F  → text engine is running
--- CC54 != 0x30  → the actual textbox is on screen
 local function isInDialogue()
    local ptr = emu:readRange(0xCC50, 1)
    local flg = emu:readRange(0xCC54, 1)
@@ -93,8 +141,8 @@ end
 --  SOCKET HOUSEKEEPING ----------------------------------------------------
 --------------------------------------------------------------------------
 local server, clients, nextID = nil, {}, 1
-local function log(id,m)   console:log  ("[INFO ] Socket "..id.." "..m) end -- Added prefix
-local function err(id,m)   console:error("[ERROR] Socket "..id.." ERROR: "..m) end -- Added prefix
+local function log(id,m)   console:log  ("[INFO ] Socket "..id.." "..m) end
+local function err(id,m)   console:error("[ERROR] Socket "..id.." ERROR: "..m) end
 local function stop(id)
    if clients[id] then
       log(id, "closing connection.")
@@ -115,39 +163,29 @@ local inputQueue = nil
 --------------------------------------------------------------------------
 local hold = {}
 local function stepAutoRelease()
-   -- auto-release any held keys
    if next(hold) then
       local rel = 0
-      local keys_to_remove = {} -- Avoid modifying table while iterating
       for k,t in pairs(hold) do
          t = t - 1
          if t <= 0 then
             console:log("[DEBUG] stepAutoRelease: Time expired for key '" .. k .. "'. Scheduling release.")
             rel = rel | KEY_MASK[k]
-            keys_to_remove[k] = true -- Mark for removal
+            hold[k] = nil
          else
             hold[k] = t
          end
       end
-      -- Remove keys marked for removal
-      for k, _ in pairs(keys_to_remove) do
-          hold[k] = nil
-      end
-
       if rel ~= 0 then
          console:log("[DEBUG] stepAutoRelease: Releasing keys with mask: " .. rel .. ". New hold: " .. table_to_string(hold))
          emu:clearKeys(rel)
       end
    end
 
-   -- process queued inputs
    if inputQueue then
       inputQueue.framesUntilNext = inputQueue.framesUntilNext - 1
-
       if inputQueue.framesUntilNext <= 0 then
          console:log("[DEBUG] stepAutoRelease: Queue ready for next input (framesUntilNext <= 0).")
          local i = inputQueue.idx
-
          if i <= #inputQueue.tokens then
             local key = inputQueue.tokens[i]
             console:log("[DEBUG] stepAutoRelease: Queue executing index " .. i .. ", token: '" .. key .. "' (Mask: " .. KEY_MASK[key] .. ")")
@@ -160,7 +198,7 @@ local function stepAutoRelease()
          else
             console:log("[DEBUG] stepAutoRelease: Input queue finished processing all tokens.")
             local sock = inputQueue.sock
-            if sock and clients[inputQueue.sockId] then -- Check if socket is still valid
+            if sock and clients[inputQueue.sockId] then
                sock:send("QUEUE_COMPLETE\n")
             else
                console:log("[DEBUG] stepAutoRelease: Queue finished, but client socket " .. (inputQueue.sockId or "??") .. " is no longer valid. Cannot send QUEUE_COMPLETE.")
@@ -241,16 +279,23 @@ local function parse(line, sock, sockId)
        return
    end
 
-   -- report current state
-   if line:upper() == "STATE" then
+   local line_upper = line:upper()
+
+   if line_upper == "STATE" then
       console:log("[DEBUG] parse: STATE command received.")
-      local state = getState()
-      console:log("[DEBUG] parse: Sending state '" .. state .. "' to socket " .. sockId)
-      sock:send(state .. "\n")
+      local state_val = getState()
+      console:log("[DEBUG] parse: Sending state '" .. state_val .. "' to socket " .. sockId)
+      sock:send(state_val .. "\n")
       return
    end
 
-   -- queued-input syntax: tok1;tok2;...;
+   if line_upper == "INPUT_DISPLAY_ON" then
+        console:log("[DEBUG] parse: INPUT_DISPLAY_ON command received.")
+        setInputDisplayVisibility(true)
+        sock:send("OK INPUT_DISPLAY_ON\n")
+        return
+   end
+
    if line:find(";") then
       console:log("[DEBUG] parse: Detected queue syntax ';'.")
       local toks = {}
@@ -265,113 +310,83 @@ local function parse(line, sock, sockId)
             console:log("[DEBUG] parse: Added token '" .. ctok .. "' to queue.")
          end
       end
-      if #toks > 0 then -- Allow single-item queues if needed, though maybe less useful
+      if #toks > 0 then
          console:log("[DEBUG] parse: Setting up input queue with " .. #toks .. " tokens.")
          inputQueue = {
             tokens          = toks,
             idx             = 1,
-            framesUntilNext = 0, -- Start immediately
+            framesUntilNext = 0,
             sock            = sock,
-            sockId          = sockId, -- Store ID for logging/checking later
+            sockId          = sockId,
          }
-         console:log("[DEBUG] parse: Input queue created: " .. table_to_string(inputQueue)) -- Note: sock won't print nicely
+         console:log("[DEBUG] parse: Input queue created: " .. table_to_string(inputQueue))
          return
       else
          console:log("[DEBUG] parse: Queue syntax found, but no valid tokens extracted.")
-         -- Treat as empty command or potentially error? Currently does nothing.
          return nil, "Queue command contained no valid tokens."
       end
    end
 
-   -- single commands
    local a,l = line:match("^READRANGE%s+(%S+)%s+(%S+)$")
    if a and l then
       console:log("[DEBUG] parse: READRANGE command received.")
       sendReadRange(sock, sockId, a, l)
       return
    end
-   if line:upper() == "CAP" then
+   if line_upper == "CAP" then
       console:log("[DEBUG] parse: CAP command received.")
       sendCapture(sock, sockId)
       return
    end
 
-   -- LOADSTATE command (case-insensitive for the command word "LOADSTATE")
-   -- Usage: LOADSTATE <slot_number> [flags]
-   -- Example: LOADSTATE 1
-   -- Example: LOADSTATE 1 29
    local slot_str, flags_str = line:match("^[Ll][Oo][Aa][Dd][Ss][Tt][Aa][Tt][Ee]%s+(%S+)%s*(%S*)$")
    if slot_str then
-      -- slot_str is mandatory due to (%S+)
-      -- flags_str is optional due to (%S*); will be empty string if not provided
       console:log("[DEBUG] parse: LOADSTATE command received with slot: '" .. slot_str .. "'" .. ((flags_str and flags_str ~= "") and (" flags: '" .. flags_str .. "'") or " (default flags)"))
-      
       local slot = tonumber(slot_str)
-      local flags = 29 -- Default flags value for emu.loadStateSlot
-
+      local flags = 29
       if not slot then 
          local err_msg = "Invalid slot number for LOADSTATE: '" .. slot_str .. "'"
-         err(sockId, err_msg)
-         sock:send("ERR " .. err_msg .. "\n")
-         return
+         err(sockId, err_msg); sock:send("ERR " .. err_msg .. "\n"); return
       end
-      -- mGBA uses 0-indexed slots (e.g., 0-9). Enforce non-negative.
       if slot < 0 then
           local err_msg = "Slot number for LOADSTATE must be non-negative: " .. slot
-          err(sockId, err_msg)
-          sock:send("ERR " .. err_msg .. "\n")
-          return
+          err(sockId, err_msg); sock:send("ERR " .. err_msg .. "\n"); return
       end
-       -- Ensure slot is an integer
       if math.floor(slot) ~= slot then
           local err_msg = "Slot number for LOADSTATE must be an integer: '" .. slot_str .. "'"
-          err(sockId, err_msg)
-          sock:send("ERR " .. err_msg .. "\n")
-          return
+          err(sockId, err_msg); sock:send("ERR " .. err_msg .. "\n"); return
       end
-
-
-      if flags_str and flags_str ~= "" then -- If flags argument was provided and is not empty
+      if flags_str and flags_str ~= "" then
          local parsed_flags = tonumber(flags_str)
          if not parsed_flags then
             local err_msg = "Invalid flags value for LOADSTATE: '" .. flags_str .. "'"
-            err(sockId, err_msg)
-            sock:send("ERR " .. err_msg .. "\n")
-            return
+            err(sockId, err_msg); sock:send("ERR " .. err_msg .. "\n"); return
          end
-         -- Ensure flags is an integer as it's s32
          if math.floor(parsed_flags) ~= parsed_flags then
             local err_msg = "Flags for LOADSTATE must be an integer: '" .. flags_str .. "'"
-            err(sockId, err_msg)
-            sock:send("ERR " .. err_msg .. "\n")
-            return
+            err(sockId, err_msg); sock:send("ERR " .. err_msg .. "\n"); return
          end
          flags = parsed_flags
       end
-
       console:log("[DEBUG] parse: Calling emu:loadStateSlot(" .. slot .. ", " .. flags .. ")")
       local success = emu:loadStateSlot(slot, flags)
-
       if success then
          console:log("[INFO ] parse: LOADSTATE successful for slot " .. slot .. " with flags " .. flags)
          sock:send("OK LOADSTATE slot " .. slot .. "\n")
-         -- Clear hold table as the game state has drastically changed,
-         -- and emu's internal key state is likely reset by loading a state.
-         console:log("[DEBUG] parse: Clearing hold table due to successful LOADSTATE.")
          hold = {}
+         console:log("[DEBUG] parse: Clearing hold table due to successful LOADSTATE.")
       else
          local err_msg = "emu:loadStateSlot failed for slot " .. slot .. " (flags " .. flags .. ")"
-         err(sockId, err_msg)
-         sock:send("ERR " .. err_msg .. "\n")
+         err(sockId, err_msg); sock:send("ERR " .. err_msg .. "\n")
       end
       return
    end
 
-   local num = line:match("^SET%s+(%S+)$")
-   if num then
-      console:log("[DEBUG] parse: SET command received with value: " .. num)
-      local m = tonumber(num) or tonumber(num,16)
-      if not m then return nil, "Bad number for SET: "..num end
+   local num_str = line:match("^SET%s+(%S+)$")
+   if num_str then
+      console:log("[DEBUG] parse: SET command received with value: " .. num_str)
+      local m = tonumber(num_str) or tonumber(num_str,16)
+      if not m then return nil, "Bad number for SET: "..num_str end
       console:log("[DEBUG] parse: Setting keys directly to mask: " .. m)
       emu:setKeys(m)
       console:log("[DEBUG] parse: Clearing hold table due to SET command.")
@@ -379,7 +394,6 @@ local function parse(line, sock, sockId)
       return
    end
 
-   -- individual key presses/releases
    console:log("[DEBUG] parse: Processing as individual key command(s).")
    local add, clr = 0, 0
    for tok in line:gmatch("%S+") do
@@ -397,7 +411,7 @@ local function parse(line, sock, sockId)
             console:log("[DEBUG] parse: Removing key '" .. name .. "' from hold table.")
             hold[name] = nil
          end
-      else -- '+' or no prefix means add
+      else
          console:log("[DEBUG] parse: Adding key '" .. name .. "' (Mask: " .. KEY_MASK[name] .. ")")
          add = add | KEY_MASK[name]
          console:log("[DEBUG] parse: Adding key '" .. name .. "' to hold table for " .. HOLD_FRAMES .. " frames.")
@@ -414,7 +428,7 @@ local function parse(line, sock, sockId)
       emu:clearKeys(clr)
    end
    console:log("[DEBUG] parse: Finished processing keys. Current hold: " .. table_to_string(hold))
-   return -- Successfully processed keys
+   return
 end
 
 --------------------------------------------------------------------------
@@ -428,7 +442,6 @@ local function onRecv(id)
    end
    console:log("[DEBUG] onRecv: Checking for data from socket " .. id)
    while true do
-      -- read up to the next newline or EOF
       local chunk, err_msg = s:receive(4096)
       if not chunk then
          if err_msg ~= socket.ERRORS.AGAIN then
@@ -437,11 +450,8 @@ local function onRecv(id)
          end
          return
       end
-
-      -- break chunk into individual lines (commands)
       for line in chunk:gmatch("[^\r\n]+") do
          console:log("[DEBUG] onRecv: Received " .. #line .. " bytes from socket " .. id .. ": '" .. line .. "'")
-
          local ok, perr = pcall(parse, line, s, id)
          if not ok then
             err(id, "parse internal exception: " .. tostring(perr))
@@ -453,7 +463,6 @@ local function onRecv(id)
       end
    end
 end
-
 
 local function onError(id, e)
    err(id, "Socket error event: " .. tostring(e))
@@ -470,12 +479,12 @@ local function onAccept()
        if e and e ~= socket.ERRORS.AGAIN then
            err("accept", "Failed to accept new connection: " .. tostring(e))
        end
-       return -- No connection pending or error occurred
+       return
    end
    local id = nextID; nextID = id + 1
    clients[id] = s
    s:add("received", function() onRecv(id) end)
-   s:add("error",    function(errMsg) onError(id, errMsg) end) -- Pass error message
+   s:add("error",    function(errMsg) onError(id, errMsg) end)
    log(id, "connected")
 end
 
@@ -485,25 +494,23 @@ end
 local function listen(port)
    console:log("[DEBUG] listen: Attempting to bind server...")
    while true do
-      server, bind_err = socket.bind(nil, port) -- Use local var for error
+      server, bind_err = socket.bind(nil, port)
       if not server then
          if bind_err == socket.ERRORS.ADDRESS_IN_USE then
             console:log("[INFO ] listen: Port " .. port .. " in use, trying next...")
             port = port + 1
          else
             err("bind", "Failed to bind to any port: " .. tostring(bind_err))
-            return -- Fatal error
+            return
          end
       else
          local ok, listen_err = server:listen()
          if ok then
              console:log("[INFO ] listen: Server socket created.")
-             break -- Successfully bound and listening
+             break
          else
              err("listen", "Failed to listen on port " .. port .. ": " .. tostring(listen_err))
-             server:close() -- Close the failed server socket
-             server = nil
-             return -- Fatal error
+             server:close(); server = nil; return
          end
       end
    end
@@ -513,139 +520,123 @@ local function listen(port)
 end
 
 
-
 -- From https://github.com/mgba-emu/mgba/blob/master/res/scripts/input-display.lua
+-- Modified for toggleable visibility.
 input_display = {
 	anchor = "topLeft",
-	offset = {
-		x = 0,
-		y = 0,
-	}
+	offset = { x = 0, y = 0 }
 }
 
-local state = {
-	drawButton = {
-		[0] = function(state) -- A
-			state.painter:drawCircle(27, 6, 4)
-		end,
-		[1] = function(state) -- B
-			state.painter:drawCircle(23, 8, 4)
-		end,
-		[2] = function(state) -- Select
-			state.painter:drawCircle(13, 11, 3)
-		end,
-		[3] = function(state) -- Start
-			state.painter:drawCircle(18, 11, 3)
-		end,
-		[4] = function(state) -- Right
-			state.painter:drawRectangle(9, 7, 4, 3)
-		end,
-		[5] = function(state) -- Left
-			state.painter:drawRectangle(2, 7, 4, 3)
-		end,
-		[6] = function(state) -- Up
-			state.painter:drawRectangle(6, 3, 3, 4)
-		end,
-		[7] = function(state) -- Down
-			state.painter:drawRectangle(6, 10, 3, 4)
-		end,
-		[8] = function(state) -- R
-			state.painter:drawRectangle(28, 0, 4, 3)
-		end,
-		[9] = function(state) -- L
-			state.painter:drawRectangle(0, 0, 4, 3)
-		end
-	},
-	maxKey = {
-		[C.PLATFORM.GBA] = 9,
-		[C.PLATFORM.GB] = 7,
-	}
+local state = {}
+state.overlay = nil
+state.painter = nil
+state.drawButton = {
+	[0] = function(st) st.painter:drawCircle(27, 6, 4) end,
+	[1] = function(st) st.painter:drawCircle(23, 8, 4) end,
+	[2] = function(st) st.painter:drawCircle(13, 11, 3) end,
+	[3] = function(st) st.painter:drawCircle(18, 11, 3) end,
+	[4] = function(st) st.painter:drawRectangle(9, 7, 4, 3) end,
+	[5] = function(st) st.painter:drawRectangle(2, 7, 4, 3) end,
+	[6] = function(st) st.painter:drawRectangle(6, 3, 3, 4) end,
+	[7] = function(st) st.painter:drawRectangle(6, 10, 3, 4) end,
+	[8] = function(st) st.painter:drawRectangle(28, 0, 4, 3) end,
+	[9] = function(st) st.painter:drawRectangle(0, 0, 4, 3) end
+}
+state.maxKey = {
+	[C.PLATFORM.GBA] = 9,
+	[C.PLATFORM.GB] = 7,
 }
 
 function state.create()
-	if state.overlay ~= nil then
-		return true
-	end
+	if state.overlay ~= nil then return true end
 	if canvas == nil then
+		console:error("[InputDisplay:Create] 'canvas' global is nil!")
 		return false
 	end
 	state.overlay = canvas:newLayer(32, 16)
 	if state.overlay == nil then
+		console:error("[InputDisplay:Create] Failed to create overlay layer.")
 		return false
 	end
 	state.painter = image.newPainter(state.overlay.image)
+    if state.painter == nil then
+        console:error("[InputDisplay:Create] Failed to create painter.")
+        state.overlay:delete()
+        state.overlay = nil
+        return false
+    end
 	state.painter:setBlend(false)
 	state.painter:setFill(true)
+    console:log("[DEBUG] InputDisplay: Created overlay and painter.")
 	return true
 end
 
 function state.update()
+    if not g_input_display_is_visible then
+        return
+    end
+
+    if not state.overlay or not state.painter then 
+        if not state.create() then return end
+    end
+
+    state.painter:setFillColor(0x40808080) 
+    state.painter:drawRectangle(0, 0, 32, 16)
+
 	local endX = canvas:screenWidth() - 32
 	local endY = canvas:screenHeight() - 16
-
 	local anchors = {
-		topLeft = {
-			x = 0,
-			y = 0
-		},
-		top = {
-			x = endX / 2,
-			y = 0
-		},
-		topRight = {
-			x = endX,
-			y = 0
-		},
-		left = {
-			x = 0,
-			y = endY / 2
-		},
-		center = {
-			x = endX / 2,
-			y = endY / 2
-		},
-		right = {
-			x = endX,
-			y = endY / 2
-		},
-		bottomLeft = {
-			x = 0,
-			y = endY
-		},
-		bottom = {
-			x = endX / 2,
-			y = endY
-		},
-		bottomRight = {
-			x = endX,
-			y = endY
-		},
+		topLeft = {x = 0, y = 0}, top = {x = endX / 2, y = 0}, topRight = {x = endX, y = 0},
+		left = {x = 0, y = endY / 2}, center = {x = endX / 2, y = endY / 2}, right = {x = endX, y = endY / 2},
+		bottomLeft = {x = 0, y = endY}, bottom = {x = endX / 2, y = endY}, bottomRight = {x = endX, y = endY},
 	}
+	local anchor_conf = input_display.anchor or "topLeft"
+    local pos = anchors[anchor_conf] or anchors.topLeft
+	pos = {x = pos.x + (input_display.offset.x or 0), y = pos.y + (input_display.offset.y or 0)}
+	state.overlay:setPosition(pos.x, pos.y)
 
-	local pos = anchors[input_display.anchor];
-	pos.x = pos.x + input_display.offset.x;
-	pos.y = pos.y + input_display.offset.y;
+    local platform_id = emu:platform()
+	local maxKey = state.maxKey[platform_id]
+    if not maxKey then
+        maxKey = state.maxKey[C.PLATFORM.GB]
+    end
 
-	state.overlay:setPosition(pos.x, pos.y);
-
-	local keys = util.expandBitmask(emu:getKeys())
-	local maxKey = state.maxKey[emu:platform()]
-
-	for key = 0, maxKey do
-		if emu:getKey(key) ~= 0 then
+	for key_idx = 0, maxKey do
+		if emu:getKey(key_idx) ~= 0 then
 			state.painter:setFillColor(0x80FFFFFF)
 		else
 			state.painter:setFillColor(0x40404040)
 		end
-		state.drawButton[key](state)
+		if state.drawButton[key_idx] then
+		    state.drawButton[key_idx](state)
+        end
 	end
+
 	state.overlay:update()
 end
 
 function state.reset()
+    if not g_input_display_is_visible then -- Turning OFF or staying OFF
+        if input_display.state.overlay then -- Check if overlay exists
+            if input_display.state.painter then -- Check if painter exists
+                console:log("[DEBUG] InputDisplay:Reset: Clearing painter for OFF state.")
+                input_display.state.painter:clear(0x00000000)
+                input_display.state.overlay:update()
+            else
+                console:log("[WARN] InputDisplay:Reset: Painter is nil during OFF state reset, but overlay exists.")
+            end
+        else
+            console:log("[DEBUG] InputDisplay:Reset: Overlay is nil during OFF state reset. Nothing to clear.")
+        end
+        return
+    end
+
+    -- If g_input_display_is_visible is true (Turning ON or staying ON)
 	if not state.create() then
-		return
-	end
+        console:error("[InputDisplay:Reset] Failed to create overlay/painter for ON state. Display will not be shown.")
+        return
+    end
+    console:log("[DEBUG] InputDisplay:Reset: Drawing background for ON state.")
 	state.painter:setFillColor(0x40808080)
 	state.painter:drawRectangle(0, 0, 32, 16)
 	state.overlay:update()
@@ -657,7 +648,6 @@ state.reset()
 callbacks:add("frame", state.update)
 callbacks:add("start", state.reset)
 
--- Script entry point
 console:log("[INFO ] mGBA Socket Server Script Starting...")
 listen(LISTEN_PORT)
-console:log("[INFO ] mGBA Socket Server Script Initialized.")
+console:log("[INFO ] mGBA Socket Server Script Initialized (Input Display starts OFF).")
