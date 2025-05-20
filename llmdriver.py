@@ -339,7 +339,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
                 if(benchmark.validation(current_mGBA_state)):
                     break
 
-            print(str(current_mGBA_state))
+            #print(str(current_mGBA_state))
             if not current_mGBA_state:
                 log.error("Failed to get state from mGBA (prep_llm returned None). Skipping.")
                 await asyncio.sleep(max(0, interval - (time.time() - loop_start_time)))
