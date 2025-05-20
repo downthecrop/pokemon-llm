@@ -10,6 +10,12 @@ class GymBenchmark(Benchmark):
             final_state.get("badges"),
             final_state.get("party"),
         )
+    def validation(self, state) -> bool:
+        badge_data = state.get('badges')
+        if(len(badge_data) > 0):
+            return True
+        
+        return False
 
 
 bench_instructions = """

@@ -10,6 +10,9 @@ class Benchmark:
         """Override in a subclass or monkey-patch on an instance."""
         pass
 
+    def validation(self, state) -> bool:
+        return False
+
 def load(path: str):
     """
     Load an arbitrary benchmark file and return the object created by its init() function.
