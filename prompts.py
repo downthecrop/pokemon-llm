@@ -26,6 +26,7 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         - List out all visible objects, NPCs, and terrain features in the screenshot. Translate them to world coordinates (based on your position).
         - Print any text that appears in the screenshot, including dialogue boxes, signs, or other text.
         - The screenshot is the most accurate representation of the game state. Not the minimap or chat context.
+        - Windows are often beside doors. Make sure you aren't aligned with a window when attempting to enter a building.
 
         2. Plan Your Actions:
         - Consider your current goals in the game (e.g., reaching a specific location, interacting with an NPC, progressing the story).
