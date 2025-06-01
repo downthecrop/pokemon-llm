@@ -19,6 +19,7 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         1. Analyze the Game State:
         - Examine the screenshot provided in the game state.
         - Check the minimap (if available) to understand your position in the broader game world and the walkability of the terrain.
+        - Cross-reference the minimap with the screenshot to identify your surroundings.
         - Identify nearby terrain, objects, and NPCs.
         - When in a menu or battle determine the position of your selection cursor.
         - When in a menu or battle avoid chaining inputs. It's important to verify the cursor each step.

@@ -16,6 +16,8 @@ GBA_HEIGHT = 160
 GB_WIDTH = 160
 GB_HEIGHT = 144
 BYTES_PER_PIXEL = 4
+MINI_MAP_SIZE = None #(21,21)  # 21x21 tiles for the minimap, None = Full Map
+
 
 GBA_RASTER_SIZE = GBA_WIDTH * GBA_HEIGHT * BYTES_PER_PIXEL
 GB_RASTER_SIZE = GB_WIDTH * GB_HEIGHT * BYTES_PER_PIXEL
@@ -217,7 +219,7 @@ def prep_llm(sock) -> dict:
 
     if loc:
         mid, x, y, facing, mapName = loc
-        dump_minimal_map(DEFAULT_ROM, mid, (x, y), grid_lines=True).save("minimap.png")
+        dump_minimal_map(DEFAULT_ROM, mid, (x, y), grid_lines=True, crop=MINI_MAP_SIZE).save("minimap.png")
         position = (x, y)
     else:
         # no map data or in battle → empty map
