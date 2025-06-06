@@ -10,12 +10,17 @@ log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
 DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ
-DEFAULT_IMAGE_DETAIL = "low" # high or low
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
 DEFAULT_OLLAMA_MODEL = "llava-phi3"
 DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+REASONING_EFFORT = "high"
+REASONING_ENABLED = True # Set to False to disable reasoning features
+MAX_TOKENS = 2048
+TEMPERATURE = 0.7 # Default temperature for model responses
+IMAGE_DETAIL = "high" # Default image detail level
 
 TIMEOUT = httpx.Timeout(15.0, read=15.0, write=10.0, connect=10.0) 
 
@@ -35,10 +40,6 @@ def get_config(env_var: str, default_value: str) -> str:
 
 def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
     MODE = get_config("MODE", DEFAULT_MODE)
-    IMAGE_DETAIL = get_config("IMAGE_DETAIL", DEFAULT_IMAGE_DETAIL)
-    if IMAGE_DETAIL not in ["low", "high"]:
-        log.warning(f"Invalid IMAGE_DETAIL '{IMAGE_DETAIL}' found. Defaulting to 'low'.")
-        IMAGE_DETAIL = "low"
 
     client = None
     model = None
@@ -51,7 +52,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             log.error("MODE is OPENAI but OPENAI_API_KEY not found in environment variables.")
-            return None, None, IMAGE_DETAIL
+            return None, None
         try:
             client = OpenAI(api_key=api_key, timeout=TIMEOUT)
             model = get_config("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
@@ -59,14 +60,14 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.info(f"Using OpenAI Mode. Model: {model}")
         except Exception as e:
             log.error(f"Failed to initialize OpenAI client: {e}", exc_info=True)
-            return None, None, IMAGE_DETAIL
+            return None, None
 
     elif MODE == "GEMINI":
         # Gemini requires a real API key from environment
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             log.error("MODE is GEMINI but GEMINI_API_KEY not found in environment variables.")
-            return None, None, IMAGE_DETAIL
+            return None, None
         try:
             client = OpenAI(
                 api_key=api_key,
@@ -78,7 +79,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.info(f"Using Gemini Mode (via OpenAI client). Model: {model}")
         except Exception as e:
             log.error(f"Failed to initialize Gemini client (via OpenAI compat): {e}", exc_info=True)
-            return None, None, IMAGE_DETAIL
+            return None, None
 
     elif MODE == "OLLAMA":
         ollama_base_url = get_config("OLLAMA_BASE_URL", 'http://localhost:11434/v1')
@@ -92,7 +93,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.info(f"Using Ollama Mode. Base URL: {ollama_base_url}, Model: {model} (API Key: Placeholder)")
         except Exception as e:
             log.error(f"Failed to initialize Ollama client: {e}", exc_info=True)
-            return None, None, IMAGE_DETAIL
+            return None, None
 
     elif MODE == "LMSTUDIO":
         lmstudio_base_url = get_config("LMSTUDIO_BASE_URL", 'http://localhost:1234/v1')
@@ -106,13 +107,13 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.info(f"Using LMStudio Mode. Base URL: {lmstudio_base_url}, Model: {model} (API Key: Placeholder)")
         except Exception as e:
             log.error(f"Failed to initialize LMStudio client: {e}", exc_info=True)
-            return None, None, IMAGE_DETAIL
+            return None, None
         
     elif MODE == "GROQ":
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             log.error("MODE is GROQ but GROQ_API_KEY not found in environment variables.")
-            return None, None, IMAGE_DETAIL
+            return None, None
         try:
             client = OpenAI(
                 base_url="https://api.groq.com/openai/v1",
@@ -123,11 +124,11 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.info(f"Using Groq Mode (via OpenAI client). Model: {model}")
         except Exception as e:
             log.error(f"Failed to initialize Groq client: {e}", exc_info=True)
-            return None, None, IMAGE_DETAIL
+            return None, None
 
     else:
         log.error(f"Invalid MODE selected: {MODE}. Set MODE environment variable correctly (e.g., OPENAI, GEMINI, OLLAMA, LMSTUDIO).")
-        return None, None, IMAGE_DETAIL
+        return None, None
 
     # Optional: Connection verification (can be commented out if causing issues)
     if client and model:
@@ -141,4 +142,4 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.warning(f"Unexpected error verifying {MODE} connection: {e}. Proceeding cautiously.")
 
     log.info(f"LLM Client setup complete. Image Detail: {IMAGE_DETAIL}")
-    return client, model, IMAGE_DETAIL, supports_reasoning
+    return client, model, supports_reasoning

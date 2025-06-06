@@ -23,7 +23,7 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         - Identify nearby terrain, objects, and NPCs.
         - When in a menu or battle determine the position of your selection cursor.
         - When in a menu or battle avoid chaining inputs. It's important to verify the cursor each step.
-        - Use the grid system to determine relative positions. Your character is always at [4,4] on the screen grid (TOP left cell is [0,0]).
+        - Use the grid system to determine relative positions. Your character is always at [4,4] X,Y on the screen grid (TOP left cell is [0,0]).
         - List out all visible objects, NPCs, and terrain features in the screenshot. Translate them to world coordinates (based on your position).
         - Print any text that appears in the screenshot, including dialogue boxes, signs, or other text.
         - The screenshot is the most accurate representation of the game state. Not the minimap or chat context.

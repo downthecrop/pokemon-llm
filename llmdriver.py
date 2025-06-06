@@ -17,6 +17,7 @@ from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client, DEFAULT_MODE
 from token_coutner import count_tokens, calculate_prompt_tokens
 from benchmark import Benchmark
+from client_setup import REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -38,7 +39,7 @@ CLEANUP_WINDOW = 10
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
 
-client, MODEL, IMAGE_DETAIL, supports_reasoning = setup_llm_client()
+client, MODEL, supports_reasoning = setup_llm_client()
 chat_history = []
 response_count = 0
 action_count = 0
@@ -110,8 +111,8 @@ def summarize_and_reset(benchmark: Benchmark = None):
         summary_resp = client.chat.completions.create(
             model=MODEL,
             messages=summary_input_messages,
-            temperature=0.7,
-            max_tokens=2048,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
         )
         if summary_resp.choices and summary_resp.choices[0].message.content:
             summary_text = summary_resp.choices[0].message.content.strip()
@@ -153,7 +154,15 @@ def next_with_timeout(iterator, timeout: float):
 
 
 def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchmark: Benchmark = None):
-    global response_count, tokens_used_session
+    """
+    Determines and executes an action by querying an LLM.
+    
+    This function intelligently switches between streaming and non-streaming API calls.
+    - For models supporting a 'reasoning_effort', it uses a non-streaming call to
+      avoid timeouts while the model "thinks".
+    - For other models, it streams the response for lower perceived latency.
+    """
+    global response_count, tokens_used_session, chat_history
 
     summary_json = None
     payload = copy.deepcopy(state_data)
@@ -164,12 +173,11 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
         log.error(f"Invalid state_data structure: {type(state_data)}")
         return None, None, False
 
-    # build the user message
+    # Build the user message with text and images
     text_segment = {"type": "text", "text": json.dumps(payload)}
     current_content = [text_segment]
     image_parts_for_api = []
-    image_placeholders_for_history = []
-
+    
     if screenshot and isinstance(screenshot.get("image_url"), dict):
         image_parts_for_api.append({"type": "image_url", "image_url": screenshot["image_url"]})
     if minimap and isinstance(minimap.get("image_url"), dict):
@@ -179,7 +187,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
     current_user_message_api = {"role": "user", "content": current_content}
     messages_for_api = chat_history + [current_user_message_api]
 
-    # token accounting
+    # Token accounting
     call_input_tokens = calculate_prompt_tokens(messages_for_api)
     log.info(f"LLM call estimate: {call_input_tokens} input tokens; history turns: {len(chat_history)}")
 
@@ -187,87 +195,120 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
     action = None
     analysis_text = None
 
-    # common args for all models
-    base_kwargs = {
-        "model": MODEL,
-        "messages": messages_for_api,
-        "temperature": 1.0,
-        "max_tokens": 2048,
-        "stream": True,
-    }
-
-    # only add reasoning_effort if supported
-    if supports_reasoning:
-        base_kwargs["reasoning_effort"] = "low"
-
     try:
-        response = client.chat.completions.create(**base_kwargs)
+        # --- API Call Section: Conditional Streaming ---
+        
+        if supports_reasoning and REASONING_ENABLED:
+            # NON-STREAMING path for reasoning models: more robust against long "thinking" times.
+            log.info(f"Model supports reasoning. Making a non-streaming API call.")
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages_for_api,
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+                stream=False, # The key change for this path
+                reasoning_effort=REASONING_EFFORT,
+                timeout=timeout # Use the timeout for the entire request
+            )
+            choice = response.choices[0]
+            content = choice.message.content
 
-        iterator = iter(response)
-        collected_chunks = []
-        stream_start = time.time()
-        log.info("LLM Stream starting…")
-        print(">>> ", end="", flush=True)
+            if content:
+                full_output = content.strip()
+                print(f">>> {full_output}", end="", flush=True)
+            else:
+                log.warning(
+                    f"LLM response content was None. Finish reason: '{choice.finish_reason}'. "
+                    "This is often due to content filtering."
+                )
+                full_output = ""
 
-        # --- first‐chunk timeout
-        try:
-            chunk = next_with_timeout(iterator, timeout)
-        except:
-            log.warning("TIMEOUT")
-            return None, None, None
-
-        # process first chunk
-        delta = chunk.choices[0].delta.content
-        if delta:
-            print(delta, end="", flush=True)
-            collected_chunks.append(delta)
-        if chunk.choices[0].finish_reason:
-            print(f"\n[END - {chunk.choices[0].finish_reason}]", flush=True)
-            log.info(f"LLM stream finished immediately: {chunk.choices[0].finish_reason}")
         else:
-            # continue until finish or total timeout
-            for chunk in iterator:
-                if time.time() - stream_start > timeout:
-                    print("\n[TIMEOUT]", flush=True)
-                    log.warning(f"LLM stream timed out after {timeout}s total")
-                    raise TimeoutError(f"Stream timed out after {timeout}s")
+            # STREAMING path for standard models: provides faster user feedback.
+            log.info("Model does not use reasoning effort. Using streaming API call.")
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages_for_api,
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+                stream=True,
+            )
 
+            iterator = iter(response)
+            collected_chunks = []
+            stream_start = time.time()
+            log.info("LLM Stream starting…")
+            print(">>> ", end="", flush=True)
+
+            # First-chunk timeout
+            try:
+                chunk = next_with_timeout(iterator, timeout)
+            except StopIteration:
+                log.warning("Stream ended immediately with no chunks.")
+                chunk = None
+            except TimeoutError:
+                log.warning(f"TIMEOUT waiting for first chunk after {timeout}s.")
+                return None, None, None
+
+            if chunk:
+                # Process first chunk
                 delta = chunk.choices[0].delta.content
                 if delta:
                     print(delta, end="", flush=True)
                     collected_chunks.append(delta)
+                
+                # Continue until finish or total timeout
+                if not chunk.choices[0].finish_reason:
+                    for chunk in iterator:
+                        if time.time() - stream_start > timeout:
+                            print("\n[TIMEOUT]", flush=True)
+                            log.warning(f"LLM stream timed out after {timeout}s total")
+                            raise TimeoutError(f"Stream timed out after {timeout}s")
 
-                if chunk.choices[0].finish_reason:
-                    print(f"\n[END - {chunk.choices[0].finish_reason}]", flush=True)
-                    log.info(f"LLM stream finished: {chunk.choices[0].finish_reason}")
-                    break
+                        delta = chunk.choices[0].delta.content
+                        if delta:
+                            print(delta, end="", flush=True)
+                            collected_chunks.append(delta)
 
-        # assemble and record
-        full_output = "".join(collected_chunks).strip()
+                        if chunk.choices[0].finish_reason:
+                            print(f"\n[END - {chunk.choices[0].finish_reason}]", flush=True)
+                            log.info(f"LLM stream finished: {chunk.choices[0].finish_reason}")
+                            break
+            
+            # Assemble final output from chunks
+            full_output = "".join(collected_chunks).strip()
+
+        # --- Post-processing Section (common to both paths) ---
+
+        if not full_output:
+            log.error("LLM call resulted in empty output.")
+            return None, None, None
+
         log.info(f"LLM raw output length: {len(full_output)} chars")
 
-        # token accounting
+        # Token accounting for the output
         output_tokens = count_tokens(full_output)
         tokens_used_session += call_input_tokens + output_tokens
         log.info(f"Used ~{output_tokens} output tokens; session total: {tokens_used_session}")
 
-        # push into history
-        user_hist = [text_segment] + image_placeholders_for_history
-        chat_history.append({"role": "user", "content": user_hist})
+        # Push interaction into history (using placeholders for images to save memory)
+        user_hist_content = [text_segment] # Images are not saved in history
+        chat_history.append({"role": "user", "content": user_hist_content})
         chat_history.append({"role": "assistant", "content": full_output})
 
-        # cleanup threshold
+        # Cleanup history if window is reached
         response_count += 1
         if response_count >= CLEANUP_WINDOW:
             summary_json = summarize_and_reset(benchmark)
+            response_count = 0 # Reset counter
             time.sleep(5)
 
-        # extract analysis section
+        # Extract analysis section
         match = ANALYSIS_RE.search(full_output)
         if match:
             analysis_text = match.group(1).strip()
 
-        # extract action JSON or fallback
+        # Extract action JSON or fallback
         json_match = re.search(r'(\{[\s\S]*?\})\s*$', full_output)
         if json_match:
             try:
@@ -280,17 +321,19 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
                     x, y = state_data["position"]
                     action = touch_controls_path_find(state_data["map_id"], [x, y],
                                                       [int(i) for i in touch.split(",")])
-                    chat_history.append({'role': 'user', 'content': action})
+                    # This special action generates a follow-up message
+                    chat_history.append({'role': 'user', 'content': f"SYSTEM: Pathfinding returned action '{action}'"})
             except json.JSONDecodeError:
                 log.warning("Failed to parse trailing JSON for action.")
+        
+        # Fallback: last line matching ACTION_RE
         if action is None:
-            # fallback: last line matching ACTION_RE
             lines = [l.strip() for l in full_output.splitlines() if l.strip()]
             if lines and ACTION_RE.match(lines[-1]) and not lines[-1].startswith('{'):
                 action = lines[-1]
 
     except Exception as e:
-        log.error(f"Error during LLM streaming: {e}", exc_info=True)
+        log.error(f"Error during LLM interaction: {e}", exc_info=True)
         return None, None, None
 
     if action is None:
