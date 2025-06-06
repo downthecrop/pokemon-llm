@@ -26,7 +26,7 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         - Use the grid system to determine relative positions. Your character is always at [4,4] X,Y on the screen grid (TOP left cell is [0,0]).
         - List out all visible objects, NPCs, and terrain features in the screenshot. Translate them to world coordinates (based on your position).
         - Print any text that appears in the screenshot, including dialogue boxes, signs, or other text.
-        - The screenshot is the most accurate representation of the game state. Not the minimap or chat context.
+        - The screenshot is the most accurate representation of the game state.
         - Windows are often beside doors. Make sure you aren't aligned with a window when attempting to enter a building.
 
         2. Plan Your Actions:
@@ -46,13 +46,12 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         - FACING DIRECTION DOES NOT AFFECT MOVEMENT VALUES, U will ALWAYS move y-1, R will always move x+1 Right.
         - To interact with an NPC or Object you must be facing their tile. (To Interact with a tile above [x=x, y=y-1] you you must be facing north)
         - If you repeartedly try the same action and it fails (your position remain the same), explore other options, like moving around the object blocking you.
-        - When in a city, orange areas on the minimap idenify buildings you can enter.
         - Use the screenshot to ensure your planned actions are not blocked. Verify with the minimap that your path is walkable.
         - You must be perfectly aligned on the grid with orange minimap tiles to enter/exit buildings. Diagonally adjacent is not enough.
         - Exits, stairs, and ladders are ALWAYS marked by a unique tile type.
         - You cannot move when an interface is open, you must close or complete the interaction it first.
         - If you want to leave a building or room you must find the unique exit tile (marked in orange on the minimap).
-        - Orange tiles on the minimap are exits, stairs, and ladders. If you are not on an orange tile, you cannot exit the room.
+        - Orange tiles on the minimap are exits, entrances, stairs, and ladders. If you are not on an orange tile, you cannot exit the room.
         - Stairs, Doors and Ladders do not require 'A' to interact. You simply walk into them.
 
         4. Menu Navigation:
@@ -113,19 +112,15 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         "
 
         Remember:
-        - Always use both the screenshot and minimap for navigation is available.
-        - Be careful to align properly with doors and entrances/exits.
         - Idle (No action/touch) is NOT an acceptable decision. YOU MUST INCLUDE A BUTTON PRESS OF SOME KIND.
         - Trainers and NPCs MUST at EITHER [0,-1], [0,1], [1,0], or [-1,0] TO INTERACT OR TRIGGER THEM. THE GAME WILL NEVER TRIGGER transitions or fights on its own.
-        - YOU MUST BE Orthogonally adjacent to trainers, NPCs, Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
+        - YOU MUST BE orthogonally adjacent to trainers, NPCs, or Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
         - Touch is best for navigation but get stuck trying to navigate around NPC's.
         - If pressing 'A' multiple times does not start an action as you expect. MOVE to a new position and try again.
-        - The screenshot is the best most accurate representation of the game. It should be your primary source of information.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
         - If an action yields no result, try a different approach.
         - THE GAME WILL NEVER TRIGGER EVENTS (ROOM TRANSITIONS, TRAINER BATTLES) ON ITS OWN. YOU MUST MOVE INTO THEM.
         - If you have tried the same movement action multiple times in a row attempt (location stayed the same) verify your path or try a touch command.
-        - Use the game screenshot as your primary source of information. It is always the most useful source of information.
         - USE YOUR PREVIOUS ACTIONS TO HELP YOU AVOID GETTING STUCK IN A LOOP.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.

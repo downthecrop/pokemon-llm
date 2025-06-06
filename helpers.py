@@ -16,7 +16,7 @@ GBA_HEIGHT = 160
 GB_WIDTH = 160
 GB_HEIGHT = 144
 BYTES_PER_PIXEL = 4
-MINI_MAP_SIZE = None #(21,21)  # 21x21 tiles for the minimap, None = Full Map
+MINI_MAP_SIZE = (21,21)  # 21x21 tiles for the minimap, None = Full Map
 
 
 GBA_RASTER_SIZE = GBA_WIDTH * GBA_HEIGHT * BYTES_PER_PIXEL
