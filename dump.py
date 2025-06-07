@@ -414,6 +414,104 @@ def dump_minimal_map(rom_path, map_id, pos=None, grid_lines=False, debug_coords=
         print(f"Unexpected error in dump_minimal_map: {e}", file=sys.stderr)
         return None
 
+
+def dump_minimap_map_array(rom_path, map_id, pos=None, crop=None):
+    """
+    Dumps a minimal map as a semicolon-separated 2D array string.
+
+    Each cell is represented by:
+        'W' for walkable
+        'B' for non-walkable (block)
+        'O' for special (walkable but marked special)
+        'P' for the player marker (overrides other symbols)
+
+    Rows are joined by ';'. For example:
+        "BBBWWWPWWO;WWWWWBWWWW;..."
+
+    Args:
+        rom_path (str): Path to ROM file.
+        map_id (int): Map ID.
+        pos (tuple[int,int] or None): Grid-quadrant to mark (gx, gy) as 'P'.
+        crop (tuple[int,int] or None): If provided, crop width,height around `pos` in quadrants.
+
+    Returns:
+        str or None: Semicolon-separated rows string, or None on error.
+    """
+    try:
+        rom = open(rom_path, 'rb').read()
+        tileset_id, width, height, map_data = load_map(rom, map_id)
+        bank, blocks_ptr, _, collision_ptr, _ = load_tileset_header(rom, tileset_id)
+        walkable_tiles = load_collision_data(rom, collision_ptr, bank)
+        blocks = load_block_data(rom, blocks_ptr, bank, map_data)
+        grid_data = build_quadrant_walkability(width, height, map_data, blocks, walkable_tiles)
+        if not grid_data or not grid_data[0]:
+            raise ValueError("Failed to build walkability grid.")
+        grid_h, grid_w = len(grid_data), len(grid_data[0])
+
+        walkable_special = calculate_walkable_special_quadrants(
+            width, height, map_data, blocks, grid_data, debug_tiles=False
+        )
+
+        # Determine cropping bounds in grid coordinates
+        if crop:
+            if not pos:
+                print("Warning: Cannot crop without `pos` in dump_minimap_map_array.", file=sys.stderr)
+                # Fall back to full grid if pos is missing
+                left, right, top, bottom = 0, grid_w - 1, 0, grid_h - 1
+            else:
+                try:
+                    crop_w, crop_h = crop
+                    half_w = crop_w // 2
+                    half_h = crop_h // 2
+
+                    left = pos[0] - half_w
+                    right = pos[0] + half_w
+                    top = pos[1] - half_h
+                    bottom = pos[1] + half_h
+
+                    # Clamp to grid boundaries
+                    left = max(0, left)
+                    right = min(grid_w - 1, right)
+                    top = max(0, top)
+                    bottom = min(grid_h - 1, bottom)
+                except Exception as e:
+                    print(f"Warning: Invalid `crop` in dump_minimap_map_array or error computing bounds: {e}", file=sys.stderr)
+                    left, right, top, bottom = 0, grid_w - 1, 0, grid_h - 1
+        else:
+            left, right, top, bottom = 0, grid_w - 1, 0, grid_h - 1
+
+        rows = []
+        for y in range(top, bottom + 1):
+            row_chars = []
+            for x in range(left, right + 1):
+                # Player marker takes precedence
+                if pos and x == pos[0] and y == pos[1]:
+                    row_chars.append('P')
+                else:
+                    is_special = (x, y) in walkable_special
+                    is_walkable = grid_data[y][x]
+                    if is_special:
+                        row_chars.append('O')
+                    elif is_walkable:
+                        row_chars.append('W')
+                    else:
+                        row_chars.append('B')
+                # (Debug: could print tile IDs if desired, but omitted here)
+            rows.append("".join(row_chars))
+
+        return ";".join(rows)
+
+    except (FileNotFoundError, IOError) as e:
+        print(f"Error reading ROM '{rom_path}': {e}", file=sys.stderr)
+        return None
+    except (ValueError, IndexError) as e:
+        print(f"Error processing minimal map array: {e}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"Unexpected error in dump_minimap_map_array: {e}", file=sys.stderr)
+        return None
+
+
 # --- CLI Wrapper ---
 def main():
     parser = argparse.ArgumentParser(

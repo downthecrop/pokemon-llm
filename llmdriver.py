@@ -17,7 +17,7 @@ from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client, DEFAULT_MODE
 from token_coutner import count_tokens, calculate_prompt_tokens
 from benchmark import Benchmark
-from client_setup import REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE
+from client_setup import REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -169,6 +169,10 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
     screenshot = payload.pop("screenshot", None)
     minimap = payload.pop("minimap", None)
 
+    if not MINIMAP_2D:
+        print(f"Minimap 2D disabled, removing minimap_2d from payload.")
+        payload.pop("minimap_2d", None)
+
     if not isinstance(payload, dict):
         log.error(f"Invalid state_data structure: {type(state_data)}")
         return None, None, False
@@ -180,7 +184,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
     
     if screenshot and isinstance(screenshot.get("image_url"), dict):
         image_parts_for_api.append({"type": "image_url", "image_url": screenshot["image_url"]})
-    if minimap and isinstance(minimap.get("image_url"), dict):
+    if minimap and MINIMAP_ENABLED and isinstance(minimap.get("image_url"), dict):
         image_parts_for_api.append({"type": "image_url", "image_url": minimap["image_url"]})
 
     current_content.extend(image_parts_for_api)
@@ -197,7 +201,6 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
 
     try:
         # --- API Call Section: Conditional Streaming ---
-        
         if supports_reasoning and REASONING_ENABLED:
             # NON-STREAMING path for reasoning models: more robust against long "thinking" times.
             log.info(f"Model supports reasoning. Making a non-streaming API call.")
@@ -374,7 +377,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         action_payload = {}
 
         try:
-            log.debug("Requesting game state from mGBA...")
+            log.info("Requesting game state from mGBA...")
             current_mGBA_state = prep_llm(sock)
 
             if(benchmark != None):
@@ -387,7 +390,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
                 log.error("Failed to get state from mGBA (prep_llm returned None). Skipping.")
                 await asyncio.sleep(max(0, interval - (time.time() - loop_start_time)))
                 continue
-            log.debug("Received game state from mGBA.")
+            log.info("Received game state from mGBA.")
         except socket.timeout:
              log.error("Socket timeout getting state from mGBA. Stopping loop.")
              break
@@ -441,10 +444,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         b64_mm = encode_image_base64(MINIMAP_PATH)
         if b64_mm: llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": IMAGE_DETAIL}}
         else: llm_input_state["minimap"] = None
-        log.debug(f"Pre-LLM state update & image prep took {time.time() - state_update_start:.2f}s. SS:{bool(b64_ss)}, MM:{bool(b64_mm)}")
-
-
-        llm_call_start = time.time()
+        log.info(f"Pre-LLM state update & image prep took {time.time() - state_update_start:.2f}s. SS:{bool(b64_ss)}, MM:{bool(b64_mm)}")
 
         log_id_counter = state.get("log_id_counter", 0) + 1
         state["log_id_counter"] = log_id_counter
@@ -484,7 +484,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             log.info(f"LLM proposed action: {action}")
             try:
                 sock.sendall((action_to_send + "\n").encode("utf-8"))
-                log.debug(f"Action '{action_to_send}' sent to mGBA.")
+                log.info(f"Action '{action_to_send}' sent to mGBA.")
             except socket.error as se:
                 log.error(f"Socket error sending action '{action_to_send}': {se}. Stopping loop.")
                 break
@@ -525,7 +525,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         log.info(f"Log Entry #{log_id_counter}: {log_action_text} (Analysis included in state log)")
 
         if update_payload:
-            log.debug(f"Broadcasting {len(update_payload)} state updates: {list(update_payload.keys())}")
+            log.info(f"Broadcasting {len(update_payload)} state updates: {list(update_payload.keys())}")
             try:
                 await broadcast_func(update_payload)
                 await broadcast_func(action_payload)
@@ -534,7 +534,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
         elapsed_loop_time = time.time() - loop_start_time
-        wait_time = max(0, interval - elapsed_loop_time)
+        wait_time = max(5, interval - elapsed_loop_time) # Ensure at least 5 seconds wait
         log.info(f"Cycle {current_cycle} took {elapsed_loop_time:.2f}s. Waiting {wait_time:.2f}s...")
         await asyncio.sleep(wait_time)
 

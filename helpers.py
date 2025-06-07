@@ -2,7 +2,7 @@
 import struct
 import pathlib
 from PIL import Image, ImageDraw
-from dump import find_path, dump_minimal_map
+from dump import find_path, dump_minimal_map, dump_minimap_map_array
 import time
 import json
 import re
@@ -216,10 +216,12 @@ def prep_llm(sock) -> dict:
     loc = get_location(sock)
     mid = None
     mapName = None
+    map2D = ""
 
     if loc:
         mid, x, y, facing, mapName = loc
         dump_minimal_map(DEFAULT_ROM, mid, (x, y), grid_lines=True, crop=MINI_MAP_SIZE).save("minimap.png")
+        map2D = dump_minimap_map_array(DEFAULT_ROM, mid, (x, y), crop=MINI_MAP_SIZE)
         position = (x, y)
     else:
         # no map data or in battle → empty map
@@ -234,6 +236,7 @@ def prep_llm(sock) -> dict:
         "position": position,
         "facing":  facing,
         "map_name": mapName,
+        "minimap_2d": map2D
     }
 
 
