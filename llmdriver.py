@@ -19,7 +19,7 @@ from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_js
 from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client
 from benchmark import Benchmark
-from client_setup import DEFAULT_MODE, ONE_IMAGE_PER_PROMPT, REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D
+from client_setup import DEFAULT_MODE, ONE_IMAGE_PER_PROMPT, REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D, SYSTEM_PROMPT_UNSUPPORTED
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -58,13 +58,14 @@ LLM_TOTAL_TIMEOUT = STREAM_TIMEOUT + 10     # e.g. 70 s / 130 s
 # ─── Helper ───────────────────────────────────────────────────────────────────
 async def call_llm_with_timeout(state_data: dict,
                                 llm_timeout: float = STREAM_TIMEOUT,
-                                total_timeout: float = LLM_TOTAL_TIMEOUT):
+                                total_timeout: float = LLM_TOTAL_TIMEOUT,
+                                benchmark: Benchmark = None):
     """
     Run `llm_stream_action` in a worker thread and abort the whole thing
     (token‑counting, API call, streaming, parsing…) after `total_timeout` s.
     """
     loop = asyncio.get_running_loop()
-    fn   = functools.partial(llm_stream_action, state_data, llm_timeout)
+    fn   = functools.partial(llm_stream_action, state_data, llm_timeout, benchmark)
 
     try:
         # run blocking LLM code in a thread, wait with an asyncio timeout
@@ -193,6 +194,11 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
         image_parts_for_api.append({"type": "image_url", "image_url": minimap["image_url"]})
 
     current_content.extend(image_parts_for_api)
+    
+    if(SYSTEM_PROMPT_UNSUPPORTED):
+        # TODO: Handle system prompt in messages
+        pass
+
     current_user_message_api = {"role": "user", "content": current_content}
     messages_for_api = chat_history + [current_user_message_api]
 
@@ -299,7 +305,6 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
         tokens_used_session += call_input_tokens + output_tokens
         log.info(f"Used ~{output_tokens} output tokens; session total: {tokens_used_session}")
 
-        # Push interaction into history (using placeholders for images to save memory)
         user_hist_content = [text_segment] # Images are not saved in history
         chat_history.append({"role": "user", "content": user_hist_content})
         chat_history.append({"role": "assistant", "content": full_output})
@@ -429,8 +434,6 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         llm_input_state = copy.deepcopy(current_mGBA_state)
         state_update_start = time.time()
 
-        #logging.info(f"History: {chat_history}")
-
 
         new_team = current_mGBA_state.get('party')
         if new_team is not None and json.dumps(new_team) != json.dumps(state.get('currentTeam')):
@@ -502,7 +505,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
         log_id_counter = state.get("log_id_counter", 0) + 1
         state["log_id_counter"] = log_id_counter
 
-        action, game_analysis, summary_json = await call_llm_with_timeout(llm_input_state)
+        action, game_analysis, summary_json = await call_llm_with_timeout(llm_input_state, benchmark=benchmark)
 
         if summary_json is not None:
             tmp = {"log_entry": {"id": log_id_counter, "text": "🔎 Chat history cleaned up."}}

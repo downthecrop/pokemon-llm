@@ -17,15 +17,15 @@ DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2-VL-72B-Instruct"
 
-REASONING_EFFORT = "low"
-ONE_IMAGE_PER_PROMPT = True # Set to False to allow multiple images per prompt
+REASONING_EFFORT = "low" # Default reasoning effort level, can be "low", "medium", or "high" for models that support it
+ONE_IMAGE_PER_PROMPT = True # Set to False to allow multiple images per prompt (Often performs better with single image)
 MINIMAP_ENABLED = True # Set to False to disable minimap features
 MINIMAP_2D = True # Set to False to disable 2D minimap features
 REASONING_ENABLED = True # Set to False to disable reasoning features
-MAX_TOKENS = 2048
+MAX_TOKENS = 2048 # Default maximum tokens for model responses
+SYSTEM_PROMPT_UNSUPPORTED = False # Set to True if system prompt is not supported by the model, instead it will be injected into messages.
 TEMPERATURE = 0.7 # Default temperature for model responses
-IMAGE_DETAIL = "low" # Default image detail level
-
+IMAGE_DETAIL = "low" # Default image detail level can be "low", or "high"
 TIMEOUT = httpx.Timeout(15.0, read=15.0, write=10.0, connect=10.0) 
 
 load_dotenv() # Load variables from .env file
