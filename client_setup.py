@@ -9,21 +9,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "TOGETHER" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER
+DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
 DEFAULT_OLLAMA_MODEL = "llava-phi3"
 DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
-DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2-VL-72B-Instruct" # Default for Ollama if not specified
+DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2-VL-72B-Instruct"
 
 REASONING_EFFORT = "low"
+ONE_IMAGE_PER_PROMPT = False # Set to False to allow multiple images per prompt
 MINIMAP_ENABLED = True # Set to False to disable minimap features
 MINIMAP_2D = True # Set to False to disable 2D minimap features
 REASONING_ENABLED = True # Set to False to disable reasoning features
 MAX_TOKENS = 2048
 TEMPERATURE = 0.7 # Default temperature for model responses
-IMAGE_DETAIL = "low" # Default image detail level
+IMAGE_DETAIL = "high" # Default image detail level
 
 TIMEOUT = httpx.Timeout(15.0, read=15.0, write=10.0, connect=10.0) 
 
@@ -150,7 +151,6 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
         log.error(f"Invalid MODE selected: {MODE}. Set MODE environment variable correctly (e.g., OPENAI, GEMINI, OLLAMA, LMSTUDIO).")
         return None, None
 
-    # Optional: Connection verification (can be commented out if causing issues)
     if client and model:
         try:
             log.info(f"Attempting to verify connection to {MODE} service...")

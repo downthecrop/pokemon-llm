@@ -37,6 +37,7 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         3. Navigation and Interaction:
         - Movement is always relative to the screen space: U (up), D (down), L (left), R (right).
         - WALKABLE gridspaces on the minimap are WHITE, NONWALKABLE are (BLACK), check that the path you intend to follow is WHITE.
+        - A 2D Minimap may be available, which shows your current position and surroundings. (B not walkable, W walkable, O doors stairs exits and ladders, P player)
         - To interact with objects or NPCs, move directly beside them (no diagonal interactions) and press A.
         - Align yourself properly with doors and stairs before attempting to use them.
         - Remember that you can't move through walls or objects.
@@ -89,15 +90,17 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         You must select a walkable tile as your destination. If the tile is not walkable (such as a building or a fence) the command is invalid.
         This is navigation based on screen coordinates, not world space coordinates.
         Remember the grid overlays TOP left cell is [0,0]. You are at [4,4] (x,y) so count the cells up and down to determine the cell you would like to navigate to.
-            
-        Example:     
+        
+        YOU MAY ONLY TOUCH THE SCREENSHOT GRID, NOT THE MINIMAP. X MAX = 9, Y MAX = 8. X MIN = 0, Y MIN = 0. Any out of bounds coordinates will be invalid.
+
+        Example:
         {{"touch":"5,5"}}
 
         This would move the player RIGHT, and DOWN (y=y+1, x=x+1). The pathfinder will navigate around objects if they are in the way.
         The pathfinder cannot navigate around NPC's. Use your vision to get yourself unstuck if your position stays the same.
         Touch can only be used for navigation not UI elements or interacting with NPC's. You will need to use normal actions to
         face an NPC's tile.
-        A touch command will not be able to exit a building. You must use a normal action instead.
+        A touch command will not be able to EXIT a building. You must use a normal action instead.
 
         Touch controls are particularly useful to navigate routes and cities. Prefer them over direct inputs in those situations.
 
@@ -115,13 +118,12 @@ def build_system_prompt(actionSummary: str = "", benchmarkInstruction: str = "")
         - Idle (No action/touch) is NOT an acceptable decision. YOU MUST INCLUDE A BUTTON PRESS OF SOME KIND.
         - Trainers and NPCs MUST at EITHER [0,-1], [0,1], [1,0], or [-1,0] TO INTERACT OR TRIGGER THEM. THE GAME WILL NEVER TRIGGER transitions or fights on its own.
         - YOU MUST BE orthogonally adjacent to trainers, NPCs, or Signs TO INTERACT. Diagonally adjacent WILL NOT TRIGGER A TRANSITION OR ACTION.
-        - Touch is best for navigation but get stuck trying to navigate around NPC's.
-        - If pressing 'A' multiple times does not start an action as you expect. MOVE to a new position and try again.
+        - If attempting the same action multiple times does not start an action as you expect. MOVE to a new position and try again.
         - Do NOT wrap your json in ```json ```, just print the raw object eg {{"action":"...;"}}
-        - If an action yields no result, try a different approach.
         - THE GAME WILL NEVER TRIGGER EVENTS (ROOM TRANSITIONS, TRAINER BATTLES) ON ITS OWN. YOU MUST MOVE INTO THEM.
         - If you have tried the same movement action multiple times in a row attempt (location stayed the same) verify your path or try a touch command.
-        - USE YOUR PREVIOUS ACTIONS TO HELP YOU AVOID GETTING STUCK IN A LOOP.
+        - USE YOUR PREVIOUS ACTIONS TO HELP AVOID GETTING STUCK IN A LOOP.
+        - If your actions yield no change in position, try a different approach or use a touch command to navigate.
 
         Now, analyze the game state and decide on your next action. Your final output should consist only of the JSON object with the action and should not duplicate or rehash any of the work you did in the thinking block.
 

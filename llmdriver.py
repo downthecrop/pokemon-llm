@@ -12,12 +12,14 @@ import re
 import concurrent.futures
 import functools
 
+from PIL import Image
+from token_coutner import count_tokens, calculate_prompt_tokens
+
 from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
-from client_setup import setup_llm_client, DEFAULT_MODE
-from token_coutner import count_tokens, calculate_prompt_tokens
+from client_setup import setup_llm_client
 from benchmark import Benchmark
-from client_setup import REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D
+from client_setup import DEFAULT_MODE, ONE_IMAGE_PER_PROMPT, REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -38,6 +40,9 @@ CLEANUP_WINDOW = 10
 
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"
+
+SAVED_SCREENSHOT_PATH = SCREENSHOT_PATH
+SAVED_MINIMAP_PATH = MINIMAP_PATH
 
 client, MODEL, supports_reasoning = setup_llm_client()
 chat_history = []
@@ -321,19 +326,35 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
                 if isinstance(act, str) and ACTION_RE.match(act):
                     action = act
                 elif isinstance(touch, str) and COORD_RE.match(touch):
+                    # handle JSON-provided touch coords
                     x, y = state_data["position"]
-                    action = touch_controls_path_find(state_data["map_id"], [x, y],
-                                                      [int(i) for i in touch.split(",")])
-                    # This special action generates a follow-up message
-                    chat_history.append({'role': 'user', 'content': f"SYSTEM: Pathfinding returned action '{action}'"})
+                    coords = [int(i) for i in touch.split(",")]
+                    action = touch_controls_path_find(
+                        state_data["map_id"],
+                        [x, y],
+                        coords
+                    )
             except json.JSONDecodeError:
                 log.warning("Failed to parse trailing JSON for action.")
-        
-        # Fallback: last line matching ACTION_RE
+
+        # Fallback: last line matching ACTION_RE or COORD_RE
         if action is None:
             lines = [l.strip() for l in full_output.splitlines() if l.strip()]
-            if lines and ACTION_RE.match(lines[-1]) and not lines[-1].startswith('{'):
-                action = lines[-1]
+            if lines:
+                last = lines[-1]
+                # plain “action” string
+                if ACTION_RE.match(last) and not last.startswith('{'):
+                    action = last
+
+                # plain touch coords
+                elif COORD_RE.match(last):
+                    x, y = state_data["position"]
+                    coords = [int(i) for i in last.split(",")]
+                    action = touch_controls_path_find(
+                        state_data["map_id"],
+                        [x, y],
+                        coords
+                    )
 
     except Exception as e:
         log.error(f"Error during LLM interaction: {e}", exc_info=True)
@@ -360,7 +381,9 @@ def encode_image_base64(image_path: str) -> str | None:
 
 async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0, max_loops = math.inf, benchmark: Benchmark = None):
     """Main async loop: Get state, call LLM, send action, update/broadcast state."""
-    global action_count, tokens_used_session, start_time, chat_history
+    global action_count, tokens_used_session, start_time, chat_history, SCREENSHOT_PATH, MINIMAP_PATH, SAVED_SCREENSHOT_PATH, SAVED_MINIMAP_PATH
+
+    b64_mm = None
 
     benchInstructions = ""
     if(benchmark != None):
@@ -437,13 +460,43 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             update_payload['minimapLocation'] = state['minimapLocation']
             log.info(f"State Update: minimapLocation -> {loc_str}")
 
+        if ONE_IMAGE_PER_PROMPT and MINIMAP_ENABLED:
+            try:
+                # Load images
+                ss_img = Image.open(SAVED_SCREENSHOT_PATH)
+                mm_img = Image.open(SAVED_MINIMAP_PATH)
+
+                # Resize minimap to match screenshot height
+                mm_ratio = ss_img.height / mm_img.height
+                new_mm_width = int(mm_img.width * mm_ratio)
+                mm_img = mm_img.resize((new_mm_width, ss_img.height), Image.LANCZOS)
+
+                # Create a new canvas wide enough for both
+                combined_width = ss_img.width + mm_img.width
+                combined = Image.new('RGB', (combined_width, ss_img.height))
+
+                # Paste screenshot at (0,0), minimap at (ss.width, 0)
+                combined.paste(ss_img, (0, 0))
+                combined.paste(mm_img, (ss_img.width, 0))
+
+                # Save combined image and override SCREENSHOT_PATH
+                combined_path = os.path.splitext(SAVED_SCREENSHOT_PATH)[0] + '_with_minimap.png'
+                combined.save(combined_path)
+                SCREENSHOT_PATH = combined_path
+
+                log.info(f"Combined screenshot + minimap saved to {combined_path}")
+            except Exception as e:
+                log.error(f"Failed to combine minimap: {e}")
+
         b64_ss = encode_image_base64(SCREENSHOT_PATH)
         if b64_ss: llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": IMAGE_DETAIL}}
         else: llm_input_state["screenshot"] = None
 
-        b64_mm = encode_image_base64(MINIMAP_PATH)
-        if b64_mm: llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": IMAGE_DETAIL}}
-        else: llm_input_state["minimap"] = None
+        if(not ONE_IMAGE_PER_PROMPT and MINIMAP_ENABLED):
+            b64_mm = encode_image_base64(MINIMAP_PATH)
+            if b64_mm: llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": IMAGE_DETAIL}}
+            else: llm_input_state["minimap"] = None
+
         log.info(f"Pre-LLM state update & image prep took {time.time() - state_update_start:.2f}s. SS:{bool(b64_ss)}, MM:{bool(b64_mm)}")
 
         log_id_counter = state.get("log_id_counter", 0) + 1
