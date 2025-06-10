@@ -36,7 +36,7 @@ if(IS_LOCAL):
 else:
     STREAM_TIMEOUT = 60
 
-CLEANUP_WINDOW = 10
+CLEANUP_WINDOW = 5
 
 SCREENSHOT_PATH = "latest.png"
 MINIMAP_PATH = "minimap.png"

@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "OPENAI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER
+DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
 DEFAULT_OLLAMA_MODEL = "llava-phi3"
@@ -23,7 +23,7 @@ MINIMAP_ENABLED = True # Set to False to disable minimap features
 MINIMAP_2D = True # Set to False to disable 2D minimap features
 REASONING_ENABLED = True # Set to False to disable reasoning features
 MAX_TOKENS = 2048 # Default maximum tokens for model responses
-SYSTEM_PROMPT_UNSUPPORTED = False # Set to True if system prompt is not supported by the model, instead it will be injected into messages.
+SYSTEM_PROMPT_UNSUPPORTED = False # Instead it will be injected into messages. (NOT IMPLEMENTED YET)
 TEMPERATURE = 0.7 # Default temperature for model responses
 IMAGE_DETAIL = "low" # Default image detail level can be "low", or "high"
 TIMEOUT = httpx.Timeout(15.0, read=15.0, write=10.0, connect=10.0) 
@@ -107,7 +107,6 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
                 api_key='lmstudio', # Hardcoded placeholder key for LMStudio
             )
             model = get_config("LMSTUDIO_MODEL", DEFAULT_LMSTUDIO_MODEL)
-            supports_reasoning = True # Not sure for this
             log.info(f"Using LMStudio Mode. Base URL: {lmstudio_base_url}, Model: {model} (API Key: Placeholder)")
         except Exception as e:
             log.error(f"Failed to initialize LMStudio client: {e}", exc_info=True)
