@@ -9,13 +9,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "GEMINI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER
+DEFAULT_MODE = "OPENAI" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
 DEFAULT_OLLAMA_MODEL = "llava-phi3"
-DEFAULT_LMSTUDIO_MODEL = "qwen2.5-vl-32b-instruct"
+DEFAULT_LMSTUDIO_MODEL = "google/gemma-3-27b"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
-DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2-VL-72B-Instruct"
+DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 
 REASONING_EFFORT = "low" # Default reasoning effort level, can be "low", "medium", or "high" for models that support it
 ONE_IMAGE_PER_PROMPT = True # Set to False to allow multiple images per prompt (Often performs better with single image)
