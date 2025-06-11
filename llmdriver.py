@@ -19,7 +19,7 @@ from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_js
 from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client
 from benchmark import Benchmark
-from client_setup import DEFAULT_MODE, ONE_IMAGE_PER_PROMPT, REASONING_ENABLED, REASONING_EFFORT, IMAGE_DETAIL, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D, SYSTEM_PROMPT_UNSUPPORTED
+from client_setup import DEFAULT_MODE, ONE_IMAGE_PER_PROMPT, REASONING_ENABLED, USES_DEFAULT_TEMPERATURE, REASONING_EFFORT, IMAGE_DETAIL, USES_MAX_COMPLETION_TOKENS, MAX_TOKENS, TEMPERATURE, MINIMAP_ENABLED, MINIMAP_2D, SYSTEM_PROMPT_UNSUPPORTED
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log = logging.getLogger('llmdriver')
@@ -113,13 +113,24 @@ def summarize_and_reset(benchmark: Benchmark = None):
 
     summary_text = "Error generating summary."
     summary_output_tokens = 0
+
+    kwargs = {
+        "model": MODEL,
+        "messages": summary_input_messages,
+    }
+
+    if USES_MAX_COMPLETION_TOKENS:
+        kwargs["max_completion_tokens"] = MAX_TOKENS
+    else:
+        kwargs["max_tokens"] = MAX_TOKENS
+
+    if USES_DEFAULT_TEMPERATURE:
+        kwargs["temperature"] = 1.0
+    else:
+        kwargs["temperature"] = TEMPERATURE
+
     try:
-        summary_resp = client.chat.completions.create(
-            model=MODEL,
-            messages=summary_input_messages,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-        )
+        summary_resp = client.chat.completions.create(**kwargs)
         if summary_resp.choices and summary_resp.choices[0].message.content:
             summary_text = summary_resp.choices[0].message.content.strip()
             summary_output_tokens = count_tokens(summary_text)
@@ -212,18 +223,30 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
 
     try:
         # --- API Call Section: Conditional Streaming ---
+        kwargs = {
+            "model": MODEL,
+            "messages": messages_for_api,
+            "temperature": TEMPERATURE,
+            "timeout": timeout,
+        }
+
+        if USES_MAX_COMPLETION_TOKENS:
+            kwargs["max_completion_tokens"] = MAX_TOKENS
+        else:
+            kwargs["max_tokens"] = MAX_TOKENS
+
+        if USES_DEFAULT_TEMPERATURE:
+            kwargs["temperature"] = 1.0
+        else:
+            kwargs["temperature"] = TEMPERATURE
+
         if supports_reasoning and REASONING_ENABLED:
             # NON-STREAMING path for reasoning models: more robust against long "thinking" times.
-            log.info(f"Model supports reasoning. Making a non-streaming API call.")
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=messages_for_api,
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
-                stream=False, # The key change for this path
-                reasoning_effort=REASONING_EFFORT,
-                timeout=timeout # Use the timeout for the entire request
-            )
+            log.info("Model supports reasoning. Making a non-streaming API call.")
+            kwargs["stream"] = False
+            kwargs["reasoning_effort"] = REASONING_EFFORT
+
+            response = client.chat.completions.create(**kwargs)
             choice = response.choices[0]
             content = choice.message.content
 
@@ -240,13 +263,9 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
         else:
             # STREAMING path for standard models: provides faster user feedback.
             log.info("Model does not use reasoning effort. Using streaming API call.")
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=messages_for_api,
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
-                stream=True,
-            )
+            kwargs["stream"] = True
+
+            response = client.chat.completions.create(**kwargs)
 
             iterator = iter(response)
             collected_chunks = []
