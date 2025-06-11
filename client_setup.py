@@ -9,14 +9,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 log = logging.getLogger('llm_client_setup')
 
 # --- Configuration Defaults ---
-DEFAULT_MODE = "GROK" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER, GROK
+DEFAULT_MODE = "ANTHOPIC" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER, GROK, ANTHOPIC
 DEFAULT_OPENAI_MODEL = "o3"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
-DEFAULT_OLLAMA_MODEL = "llava-phi3"
+DEFAULT_GEMINI_MODEL = "gemma-3n-e4b-it"
+DEFAULT_OLLAMA_MODEL = "gemma3:27b-it-q4_K_M"
 DEFAULT_LMSTUDIO_MODEL = "google/gemma-3-27b"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 DEFAULT_GROK_MODEL = "grok-3-mini"
+DEFAULT_ANTHOPIC_MODEL = "claude-sonnet-4-20250514"
 
 REASONING_EFFORT = "low" # Default reasoning effort level, can be "low", "medium", or "high" for models that support it
 ONE_IMAGE_PER_PROMPT = True # Set to False to allow multiple images per prompt (Often performs better with single image)
@@ -151,6 +152,24 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.error(f"Failed to initialize Grok client: {e}", exc_info=True)
             return None, None
         
+    elif MODE == "ANTHOPIC":
+        api_key = os.getenv("ANTHOPIC_API_KEY")
+        if not api_key:
+            log.error("MODE is ANTHOPIC but ANTHOPIC_API_KEY not found in environment variables.")
+            return None, None
+        try:
+            client = OpenAI(
+                base_url="https://api.anthropic.com/v1/",
+                api_key=api_key,
+                timeout=TIMEOUT
+            )
+            supports_reasoning = True
+            model = get_config("ANTHOPIC_MODEL", DEFAULT_ANTHOPIC_MODEL)
+            log.info(f"Using ANTHOPIC Mode (via OpenAI client). Model: {model}")
+        except Exception as e:
+            log.error(f"Failed to initialize ANTHOPIC client: {e}", exc_info=True)
+            return None, None
+
     elif MODE == "TOGETHER":
         api_key = os.getenv("TOGETHER_API_KEY")
         if not api_key:
