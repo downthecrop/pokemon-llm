@@ -98,7 +98,7 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
                 api_key='ollama', # Hardcoded placeholder key for Ollama
             )
             model = get_config("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
-            supports_reasoning = True # Not sure for this
+            #supports_reasoning = True # Not sure for this
             log.info(f"Using Ollama Mode. Base URL: {ollama_base_url}, Model: {model} (API Key: Placeholder)")
         except Exception as e:
             log.error(f"Failed to initialize Ollama client: {e}", exc_info=True)

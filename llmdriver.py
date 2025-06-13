@@ -609,7 +609,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
         elapsed_loop_time = time.time() - loop_start_time
-        wait_time = max(5, interval - elapsed_loop_time) # Ensure at least 5 seconds wait
+        wait_time = max(10, interval - elapsed_loop_time) # Ensure at least 10 seconds wait
         log.info(f"Cycle {current_cycle} took {elapsed_loop_time:.2f}s. Waiting {wait_time:.2f}s...")
         await asyncio.sleep(wait_time)
 
