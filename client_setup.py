@@ -11,7 +11,7 @@ log = logging.getLogger('llm_client_setup')
 # --- Configuration Defaults ---
 DEFAULT_MODE = "ANTHOPIC" # OPENAI, GEMINI, OLLAMA, LMSTUDIO, GROQ, TOGETHER, GROK, ANTHOPIC
 DEFAULT_OPENAI_MODEL = "o3"
-DEFAULT_GEMINI_MODEL = "gemma-3n-e4b-it"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
 DEFAULT_OLLAMA_MODEL = "gemma3:27b-it-q4_K_M"
 DEFAULT_LMSTUDIO_MODEL = "google/gemma-3-27b"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
