@@ -6,6 +6,7 @@ from dump import find_path, dump_minimal_map, dump_minimap_map_array
 import time
 import json
 import re
+from tqdm import tqdm
 from enum import IntEnum
 
 DEFAULT_ROM = 'c.gbc'
@@ -744,3 +745,83 @@ def get_location_name(value: int) -> str | None:
         return MapLocation(value).name
     except ValueError:
         return None
+    
+    
+    
+    
+import os
+import sys
+import shutil
+
+def find_mgba():
+    # os.name == "nt" for window
+    exe_name = "mgba.exe" if os.name == "nt" else "mgba"
+    path = shutil.which(exe_name)
+    if path:
+        print(f"found in {path}")
+        return path
+
+    # fallback for search common install locations
+    search_paths = []
+    
+    if sys.platform.startswith("win"):
+        search_paths = [
+            "C:\\Program Files\\mGBA",
+            "C:\\Program Files (x86)\\mGBA",
+            os.path.expanduser("~\\Downloads\\mGBA")
+        ]
+    elif sys.platform == "darwin":  # macOS
+        search_paths = [
+            "/Applications/mGBA.app/Contents/MacOS",
+            "/usr/local/bin",
+            os.path.expanduser("~/Applications"),
+        ]
+    elif sys.platform.startswith("linux"):
+        search_paths = [
+            "/usr/bin",
+            "/usr/local/bin",
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/.local/bin"),
+        ]
+
+    for folder in search_paths:
+        full_path = os.path.join(folder, exe_name)
+        if os.path.exists(full_path):
+            return full_path
+    
+    print_dot_interval = 2000 # print dot every 2000 dirs
+    print("Finding mgba file path...", end="", flush=True)
+    
+    # Count total directories first (for accurate progress)
+    
+    dirs = []
+    count = 0
+
+    for root, _, _ in os.walk(os.path.expanduser("~")):
+        dirs.append(root)
+        count += 1
+        if count % print_dot_interval == 0:
+            print(".", end="", flush=True)
+        
+    print()
+    
+
+    for root in tqdm(dirs, desc="Scanning directories"):
+        try:
+            if exe_name in os.listdir(root):
+                return os.path.join(root, exe_name)
+        except (PermissionError, FileNotFoundError):
+            continue
+    print("MGBA not found!")
+    return None
+
+
+def parse_max_loops_fn(value, cli_args):
+    try:                        
+        if value <= 0:
+            return [None, False, "--max_loops value must be a positive integer."]
+            
+        return [value, True, f"Command line argument: --max_loops set to {value}."]
+
+    except ValueError:
+        return [None, False, f"--max_loops expects an integer value, got: {cli_args[i+1]}"]

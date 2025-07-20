@@ -1,0 +1,7 @@
+pyinstaller # install pyinstaller to be able to run with --windowed command arg
+openai
+python-dotenv
+httpx
+Pillow
+websockets
+tiktoken

@@ -1,315 +1,416 @@
 <!DOCTYPE html>
 <html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>LLM Plays Pokémon - VueJS UI</title>
+		<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+		<link rel="stylesheet" href="style.css" />
+	</head>
 
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LLM Plays Pokémon - VueJS UI</title>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <link rel="stylesheet" href="style.css">
-    <style>
-        /* Add some basic styling for the minimap image */
-        .minimap-body img {
-            max-width: 100%;
-            display: block;
-            margin: 5px auto;
-            /* Center image and add some margin */
-            object-fit: contain;
-            /* Ensure the image fits without distortion */
-        }
+	<body>
+		<div id="app">
+			<!-- Header Section (No changes needed here) -->
+			<div class="header">
+				<div class="stats-widget">
+					<div class="actions-container">
+						<div class="widget-title">ACTIONS</div>
+						<div class="actions-count">{{ actions.toLocaleString() }}</div>
+						<div class="subinfo">
+							<span>Model: {{ modelName }}</span>
+							<span>Tokens: {{ tokensUsed.toLocaleString() }}</span>
+							<span
+								>GG: T-{{ ggValue !== null ? ggValue : 'N/A' }} | Summary: T-{{ summaryValue !== null ? summaryValue :
+								'N/A' }}</span
+							>
+						</div>
+					</div>
+					<div class="badges-widget">
+						<div class="widget-title">BADGES - {{ badges.length }}/8</div>
+						<div class="badges">
+							<div class="badge" v-for="(badge, i) in displayBadges" :key="badge.name + '-' + i" :title="badge.name">
+								<span class="badge-emoji">{{ badge.emoji }}</span>
+							</div>
+							<div class="badge empty" v-for="(_, i) in Math.max(0, 8 - badges.length)" :key="'empty-badge-' + i"></div>
+						</div>
+					</div>
+				</div>
+				<div class="title">LLM PLAYS POKÉMON</div>
+			</div>
 
-        .badge-emoji {
-            line-height: 1;
-            /* avoid weird vertical alignment */
-        }
+			<!-- Left Column (Log) (No changes needed here) -->
+			<div class="left-col">
+				<div class="status">
+					<span>Game Status: {{ gameStatus }}</span>
+					<span v-if="websocketStatus" :class="['ws-status', websocketStatus.toLowerCase().replace('...','')]">
+						• {{ websocketStatus }}
+					</span>
+				</div>
+				<div class="log" ref="actionLogContainer">
+					<transition-group name="log-item" tag="div">
+						<div class="log-entry" v-for="(entry) in displayedLogs" :key="entry.id">
+							<strong>#{{ entry.id }}:</strong>
+							<span v-html="formatLogText(entry.text)"></span>
+						</div>
+					</transition-group>
+				</div>
+			</div>
 
-        .minimap-hidden-message {
-            text-align: center;
-            color: #aaa;
-            font-style: italic;
-            padding: 20px 0;
-        }
-    </style>
-</head>
+			<!-- Middle Column (Goals) (No changes needed here) -->
+			<div class="goals-log">
+				<div class="log" ref="goalsLogContainer">
+					<h3>Primary Goal</h3>
+					<p class="log-entry" v-html="formatLogText(goals.primary)"></p>
+					<h3>Secondary Goals</h3>
+					<ul>
+						<li class="log-entry" v-html="formatLogText(goals.secondary)"></li>
+					</ul>
+					<h3>Tertiary Goal</h3>
+					<p class="log-entry" v-html="formatLogText(goals.tertiary)"></p>
+					<h3>Other Notes</h3>
+					<p class="log-entry" v-html="formatLogText(otherGoals)"></p>
+				</div>
+			</div>
 
-<body>
-    <div id="app">
-        <!-- Header Section (No changes needed here) -->
-        <div class="header">
-            <div class="stats-widget">
-                <div class="actions-container">
-                    <div class="widget-title">ACTIONS</div>
-                    <div class="actions-count">{{ actions.toLocaleString() }}</div>
-                    <div class="subinfo">
-                        <span>Model: {{ modelName }}</span>
-                        <span>Tokens: {{ tokensUsed.toLocaleString() }}</span>
-                        <span>GG: T-{{ ggValue !== null ? ggValue : 'N/A' }} | Summary: T-{{ summaryValue !== null ?
-                            summaryValue : 'N/A' }}</span>
-                    </div>
-                </div>
-                <div class="badges-widget">
-                    <div class="widget-title">BADGES - {{ badges.length }}/8</div>
-                    <div class="badges">
-                        <div class="badge" v-for="(badge, i) in displayBadges" :key="badge.name + '-' + i"
-                            :title="badge.name">
-                            <span class="badge-emoji">{{ badge.emoji }}</span>
-                        </div>
-                        <div class="badge empty" v-for="(_, i) in Math.max(0, 8 - badges.length)"
-                            :key="'empty-badge-' + i"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="title">LLM PLAYS POKÉMON</div>
-        </div>
+			<!-- Right Column (Game Feed & Team) -->
+			<div class="feed-wrapper">
+				<div class="game-feed">
+					<div class="game-placeholder">Game Feed Placeholder</div>
+					<div class="minimap-container" v-show="minimapVisible">
+						<div class="minimap-header">{{ minimapLocation }}</div>
+						<!-- *** MODIFIED MINIMAP BODY *** -->
+						<div class="minimap-body">
+							<img :src="minimapSrc" alt="Minimap" @load="handleMinimapLoad" @error="handleMinimapError" />
+							<div v-if="!minimapVisible" class="minimap-hidden-message">Minimap Unavailable</div>
+						</div>
+						<!-- *** END MODIFIED MINIMAP BODY *** -->
+					</div>
+				</div>
+				<!-- Team Bar (No changes needed here) -->
+				<div class="team-bar">
+					<div
+						class="pokemon"
+						v-for="(p,i) in currentTeam"
+						:key="'team-'+i"
+						:class="{ fainted: p.hp <= 0 }"
+						:style="{ backgroundImage: `linear-gradient(to bottom, rgba(255,255,255,0.15), ${typeColors[p.type] || '#aaaaaa'})` }"
+					>
+						<div>
+							<div class="pokemon-name">{{ p.name }}</div>
+							<div class="pokemon-level">Lv {{ p.level }}</div>
+							<div class="pokemon-type">{{ p.type }}</div>
+						</div>
+						<div>
+							<div class="hp-bar">
+								<div class="hp-fill" :style="{ width: p.maxHp > 0 ? (p.hp / p.maxHp * 100) + '%' : '0%' }"></div>
+							</div>
+							<div class="hp-text">{{ p.hp }} / {{ p.maxHp }}</div>
+						</div>
+					</div>
+					<div class="pokemon empty-slot" v-for="i in Math.max(0, 6 - currentTeam.length)" :key="'empty-slot-'+i">
+						EMPTY
+					</div>
+				</div>
+			</div>
+		</div>
 
-        <!-- Left Column (Log) (No changes needed here) -->
-        <div class="left-col">
-            <div class="status">
-                <span>Game Status: {{ gameStatus }}</span>
-                <span v-if="websocketStatus" :class="['ws-status', websocketStatus.toLowerCase().replace('...','')]">
-                    • {{ websocketStatus }}
-                </span>
-            </div>
-            <div class="log" ref="actionLogContainer">
-                <transition-group name="log-item" tag="div">
-                    <div class="log-entry" v-for="(entry) in displayedLogs" :key="entry.id">
-                        <strong>#{{ entry.id }}:</strong>
-                        <span v-html="formatLogText(entry.text)"></span>
-                    </div>
-                </transition-group>
-            </div>
-        </div>
+		<script>
+			// --- Keep the existing constants ---
+			const MAX_LOG_ENTRIES = 3000;
+			const WEBSOCKET_URL = "ws://localhost:8765";
+			const RECONNECT_INTERVAL = 5000;
+			const MINIMAP_POLL_INTERVAL = 1000; // Poll every 1 second
+      
 
-        <!-- Middle Column (Goals) (No changes needed here) -->
-        <div class="goals-log">
-            <div class="log" ref="goalsLogContainer">
-                <h3>Primary Goal</h3>
-                <p class="log-entry" v-html="formatLogText(goals.primary)"></p>
-                <h3>Secondary Goals</h3>
-                <ul>
-                    <li class="log-entry" v-html="formatLogText(goals.secondary)">
-                    </li>
-                </ul>
-                <h3>Tertiary Goal</h3>
-                <p class="log-entry" v-html="formatLogText(goals.tertiary)"></p>
-                <h3>Other Notes</h3>
-                <p class="log-entry" v-html="formatLogText(otherGoals)"></p>
-            </div>
-        </div>
+			Vue.createApp({
+				data() {
+					return {
+						// --- Existing Data ---
+						actions: 0,
+						badges: [],
+						gameStatus: "Connecting...",
+						logs: [],
+						goals: { primary: "Loading...", secondary: "Loading...", tertiary: "Loading..." },
+						otherGoals: "Loading...",
+						currentTeam: [],
+						modelName: "N/A",
+						tokensUsed: 0,
+						ggValue: null,
+						summaryValue: null,
+						minimapLocation: "Unknown Area",
+						typeColors: {
+							Water: "#4fc3f7",
+							Grass: "#81c784",
+							Poison: "#ba68c8",
+							Electric: "#ffd54f",
+							Rock: "#a1887f",
+							Ground: "#d7ccc8",
+							Fighting: "#e57373",
+							Normal: "#bdbdbd",
+							Bug: "#cddc39",
+							Ghost: "#9575cd",
+							Steel: "#b0bec5",
+							Fire: "#ff8a65",
+							Psychic: "#f06292",
+							Ice: "#80deea",
+							Dragon: "#7e57c2",
+							Dark: "#757575",
+							Fairy: "#f48fb1",
+							Flying: "#90a4ae",
+						},
+						websocket: null,
+						websocketUrl: WEBSOCKET_URL,
+						websocketStatus: "Disconnected",
+						reconnectInterval: RECONNECT_INTERVAL,
+						reconnectTimer: null,
 
-        <!-- Right Column (Game Feed & Team) -->
-        <div class="feed-wrapper">
-            <div class="game-feed">
-                <div class="game-placeholder">Game Feed Placeholder</div>
-                <div class="minimap-container" v-show="minimapVisible">
-                    <div class="minimap-header">{{ minimapLocation }}</div>
-                    <!-- *** MODIFIED MINIMAP BODY *** -->
-                    <div class="minimap-body">
-                        <img :src="minimapSrc" alt="Minimap" @load="handleMinimapLoad" @error="handleMinimapError">
-                        <div v-if="!minimapVisible" class="minimap-hidden-message">
-                            Minimap Unavailable
-                        </div>
-                    </div>
-                    <!-- *** END MODIFIED MINIMAP BODY *** -->
-                </div>
-            </div>
-            <!-- Team Bar (No changes needed here) -->
-            <div class="team-bar">
-                <div class="pokemon" v-for="(p,i) in currentTeam" :key="'team-'+i" :class="{ fainted: p.hp <= 0 }"
-                    :style="{ backgroundImage: `linear-gradient(to bottom, rgba(255,255,255,0.15), ${typeColors[p.type] || '#aaaaaa'})` }">
-                    <div>
-                        <div class="pokemon-name">{{ p.name }}</div>
-                        <div class="pokemon-level">Lv {{ p.level }}</div>
-                        <div class="pokemon-type">{{ p.type }}</div>
-                    </div>
-                    <div>
-                        <div class="hp-bar">
-                            <div class="hp-fill" :style="{ width: p.maxHp > 0 ? (p.hp / p.maxHp * 100) + '%' : '0%' }">
-                            </div>
-                        </div>
-                        <div class="hp-text">{{ p.hp }} / {{ p.maxHp }}</div>
-                    </div>
-                </div>
-                <div class="pokemon empty-slot" v-for="i in Math.max(0, 6 - currentTeam.length)" :key="'empty-slot-'+i">
-                    EMPTY
-                </div>
-            </div>
-        </div>
+						badgeEmojiMap: {
+							Boulder: "🪨",
+							Cascade: "💧",
+							Thunder: "⚡",
+							Rainbow: "🌈",
+							Soul: "💜",
+							Marsh: "🐸",
+							Volcano: "🌋",
+							Earth: "🌍",
+						},
 
-    </div>
+						// --- New Data for Minimap ---
+						minimapSrc: "", // Current source URL for the minimap image
+						minimapVisible: false, // Controls visibility based on load success/failure
+						minimapTimer: null, // Holds the interval timer ID
+						minimapPollInterval: MINIMAP_POLL_INTERVAL, // Configurable poll interval
+					};
+				},
+				computed: {
+					// --- Existing Computed Properties ---
+					displayedLogs() {
+						return this.logs;
+					},
+					displayBadges() {
+						return this.badges.map((name) => ({
+							name,
+							emoji: this.badgeEmojiMap[name] || "❓",
+						}));
+					},
+				},
+				methods: {
+					// --- Existing Methods (connectWebSocket, processWebSocketMessage, scheduleReconnect, scrollToBottom, formatLogText) ---
+					connectWebSocket() {
+						/* ... (Keep existing implementation) ... */
+						console.log(`Attempting to connect to ${this.websocketUrl}...`);
+						this.websocketStatus = "Connecting";
 
-    <script>
-        // --- Keep the existing constants ---
-        const MAX_LOG_ENTRIES = 3000;
-        const WEBSOCKET_URL = 'ws://localhost:8765';
-        const RECONNECT_INTERVAL = 5000;
-        const MINIMAP_POLL_INTERVAL = 1000; // Poll every 1 second
+						if (this.reconnectTimer) {
+							clearTimeout(this.reconnectTimer);
+							this.reconnectTimer = null;
+						}
+						if (this.websocket && this.websocket.readyState !== WebSocket.CLOSED) {
+							console.log("Closing existing WebSocket connection before reconnecting.");
+							this.websocket.onclose = null;
+							this.websocket.close();
+						}
+						try {
+							this.websocket = new WebSocket(this.websocketUrl);
+						} catch (error) {
+							console.error("Failed to create WebSocket:", error);
+							this.websocketStatus = "Error";
+							this.scheduleReconnect();
+							return;
+						}
+						this.websocket.onopen = (event) => {
+							console.log("WebSocket connection established.");
+							this.websocketStatus = "Connected";
+						};
+						this.websocket.onmessage = (event) => {
+							try {
+								const message = JSON.parse(event.data);
+								this.processWebSocketMessage(message);
+							} catch (e) {
+								console.error("Failed to parse message or update data:", e, event.data);
+							}
+						};
+						this.websocket.onerror = (event) => {
+							console.error("WebSocket error observed.");
+							this.websocketStatus = "Error";
+						};
+						this.websocket.onclose = (event) => {
+							console.log(`WebSocket connection closed: Code=${event.code}, Reason='${event.reason}'`);
+							this.websocket = null;
 
-        Vue.createApp({
-            data() {
-                return {
-                    // --- Existing Data ---
-                    actions: 0, badges: [], gameStatus: 'Connecting...', logs: [],
-                    goals: { primary: 'Loading...', secondary: 'Loading...', tertiary: 'Loading...' },
-                    otherGoals: 'Loading...', currentTeam: [], modelName: 'N/A', tokensUsed: 0,
-                    ggValue: null, summaryValue: null, minimapLocation: 'Unknown Area',
-                    typeColors: { Water: '#4fc3f7', Grass: '#81c784', Poison: '#ba68c8', Electric: '#ffd54f', Rock: '#a1887f', Ground: '#d7ccc8', Fighting: '#e57373', Normal: '#bdbdbd', Bug: '#cddc39', Ghost: '#9575cd', Steel: '#b0bec5', Fire: '#ff8a65', Psychic: '#f06292', Ice: '#80deea', Dragon: '#7e57c2', Dark: '#757575', Fairy: '#f48fb1', Flying: '#90a4ae' },
-                    websocket: null, websocketUrl: WEBSOCKET_URL, websocketStatus: 'Disconnected',
-                    reconnectInterval: RECONNECT_INTERVAL, reconnectTimer: null,
+							//
+							if (event.code !== 1000 && !this.reconnectTimer) {
+								console.log("Connection closed unexpectedly or failed to connect. Attempting to reconnect...");
+								this.websocketStatus = "Disconnected";
+								this.scheduleReconnect();
+							} else if (event.code === 1000) {
+								this.websocketStatus = "Disconnected";
+							} else {
+								if (this.websocketStatus !== "Reconnecting...") {
+									this.websocketStatus = "Disconnected";
+								}
+							}
+						};
+					},
+					processWebSocketMessage(message) {
+						/* ... (Keep existing implementation) ... */
+						for (const key in message) {
+							if (!message.hasOwnProperty(key)) {
+								continue;
+							}
+							if (key === "log_entry") {
+								if (
+									typeof message.log_entry === "object" &&
+									message.log_entry !== null &&
+									message.log_entry.id != null
+								) {
+									if (!Array.isArray(this.logs)) {
+										this.logs = [];
+									}
+									this.logs.push(message.log_entry);
+									if (this.logs.length > MAX_LOG_ENTRIES) {
+										this.logs.splice(0, this.logs.length - MAX_LOG_ENTRIES);
+									}
+									this.scrollToBottom(this.$refs.actionLogContainer);
+								} else {
+									console.warn(`Received invalid 'log_entry':`, message.log_entry);
+								}
+							} else if (key === "logs") {
+								if (Array.isArray(message.logs)) {
+									console.log("Received full 'logs' array, replacing local logs.");
+									this.logs = message.logs.slice(-MAX_LOG_ENTRIES);
+									this.scrollToBottom(this.$refs.actionLogContainer);
+								} else {
+									console.warn(`Received 'logs' key but the value was not an array:`, message.logs);
+								}
+							} else if (this.$data.hasOwnProperty(key)) {
+								// Added check for minimap properties managed by polling
+								if (key === "minimapSrc" || key === "minimapVisible") {
+									// console.warn(`WebSocket tried to update '${key}', but it's managed by polling. Ignoring.`);
+									continue; // Skip WebSocket updates for these specific properties
+								}
+								if (
+									this[key] === null ||
+									typeof this[key] === typeof message[key] ||
+									(Array.isArray(this[key]) && Array.isArray(message[key])) ||
+									(typeof this[key] === "object" &&
+										typeof message[key] === "object" &&
+										!Array.isArray(this[key]) &&
+										!Array.isArray(message[key]))
+								) {
+									this[key] = message[key];
+								} else {
+									console.warn(
+										`Type mismatch for key '${key}'. Local type: ${typeof this[key]} (${
+											Array.isArray(this[key]) ? "Array" : "Object"
+										}), Received type: ${typeof message[key]} (${
+											Array.isArray(message[key]) ? "Array" : "Object"
+										}). Update skipped.`
+									);
+								}
+							}
+						}
+					},
+					scheduleReconnect() {
+						/* ... (Keep existing implementation) ... */
+						if (this.reconnectTimer) {
+							return;
+						}
+						this.websocketStatus = "Reconnecting...";
+						console.log(`Scheduling reconnect in ${this.reconnectInterval / 1000} seconds...`);
+						this.reconnectTimer = setTimeout(() => {
+							this.reconnectTimer = null;
+							this.connectWebSocket();
+						}, this.reconnectInterval);
+					},
+					scrollToBottom(container) {
+						/* ... (Keep existing implementation) ... */
+						if (container) {
+							this.$nextTick(() => {
+								container.scrollTop = container.scrollHeight;
+							});
+						}
+					},
+					formatLogText(text) {
+						/* ... (Keep existing implementation) ... */
+						if (typeof text !== "string" || !text) {
+							return text;
+						}
+						let formattedText = text;
+						const coordRegex = /(\[\d+,\s*\d+\])/g;
+						formattedText = formattedText.replace(coordRegex, (match) => {
+							return `<span class="coordinate">${match}</span>`;
+						});
+						const actionSequenceRegex = /(Action:\s*)([ABUDLRS][\s;ABUDLRS]*?)(?=[^ABUDLRS\s;]|$)/g;
+						formattedText = formattedText.replace(actionSequenceRegex, (fullMatch, prefix, sequence) => {
+							let cleanedSequence = sequence.replace(/;/g, "").replace(/\s+/g, " ").trim();
+							let highlightedSequence = "";
+							for (const actionChar of cleanedSequence) {
+								if (actionChar === " ") {
+									highlightedSequence += " ";
+								} else if (/[AB]/.test(actionChar)) {
+									highlightedSequence += `<span class="action-type-ab">${actionChar}</span>`;
+								} else if (/[UDLRS]/.test(actionChar)) {
+									highlightedSequence += `<span class="action-type-direction">${actionChar}</span>`;
+								}
+							}
+							return prefix + highlightedSequence;
+						});
+						return formattedText;
+					},
 
-                    badgeEmojiMap: {
-                        Boulder: '🪨',
-                        Cascade: '💧',
-                        Thunder: '⚡',
-                        Rainbow: '🌈',
-                        Soul: '💜',
-                        Marsh: '🐸',
-                        Volcano: '🌋',
-                        Earth: '🌍',
-                    },
+					// --- New Methods for Minimap ---
+					updateMinimap() {
+						// Force browser to re-fetch by adding a changing query parameter (cache buster)
+						// console.log('Polling minimap...'); // Optional: for debugging
+						this.minimapSrc = `../minimap.png?t=${Date.now()}`;
+						// Visibility is handled by the load/error events below
+					},
+					handleMinimapLoad() {
+						// Image loaded successfully (non-zero bytes, valid image format)
+						// console.log('Minimap loaded.'); // Optional: for debugging
+						this.minimapVisible = true;
+					},
+					handleMinimapError(event) {
+						// Image failed to load (could be 0 bytes, missing, network error, corrupted)
+						// console.log('Minimap error - hiding.'); // Optional: for debugging
+						this.minimapVisible = false;
+						// Prevent broken image icon showing by setting src to empty / transparent pixel?
+						// event.target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // Optional: Use a transparent pixel on error
+					},
+				},
+				mounted() {
+					console.log("Vue app mounted.");
+					// --- Existing WebSocket Connection ---
+					this.connectWebSocket();
 
-                    // --- New Data for Minimap ---
-                    minimapSrc: '',          // Current source URL for the minimap image
-                    minimapVisible: false,   // Controls visibility based on load success/failure
-                    minimapTimer: null,      // Holds the interval timer ID
-                    minimapPollInterval: MINIMAP_POLL_INTERVAL // Configurable poll interval
-                };
-            },
-            computed: {
-                // --- Existing Computed Properties ---
-                displayedLogs() {
-                    return this.logs;
-                },
-                displayBadges() {
-                    return this.badges.map(name => ({
-                        name,
-                        emoji: this.badgeEmojiMap[name] || '❓'
-                    }))
-                }
-            },
-            methods: {
-                // --- Existing Methods (connectWebSocket, processWebSocketMessage, scheduleReconnect, scrollToBottom, formatLogText) ---
-                connectWebSocket() { /* ... (Keep existing implementation) ... */
-                    console.log(`Attempting to connect to ${this.websocketUrl}...`); this.websocketStatus = 'Connecting';
-                    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-                    if (this.websocket && this.websocket.readyState !== WebSocket.CLOSED) { console.log("Closing existing WebSocket connection before reconnecting."); this.websocket.onclose = null; this.websocket.close(); }
-                    try { this.websocket = new WebSocket(this.websocketUrl); } catch (error) { console.error("Failed to create WebSocket:", error); this.websocketStatus = 'Error'; this.scheduleReconnect(); return; }
-                    this.websocket.onopen = (event) => { console.log('WebSocket connection established.'); this.websocketStatus = 'Connected'; };
-                    this.websocket.onmessage = (event) => { try { const message = JSON.parse(event.data); this.processWebSocketMessage(message); } catch (e) { console.error('Failed to parse message or update data:', e, event.data); } };
-                    this.websocket.onerror = (event) => { console.error('WebSocket error observed.'); this.websocketStatus = 'Error'; };
-                    this.websocket.onclose = (event) => {
-                        console.log(`WebSocket connection closed: Code=${event.code}, Reason='${event.reason}'`); this.websocket = null;
-                        if (event.code !== 1000 && !this.reconnectTimer) { console.log("Connection closed unexpectedly or failed to connect. Attempting to reconnect..."); this.websocketStatus = 'Disconnected'; this.scheduleReconnect(); }
-                        else if (event.code === 1000) { this.websocketStatus = 'Disconnected'; } else { if (this.websocketStatus !== 'Reconnecting...') { this.websocketStatus = 'Disconnected'; } }
-                    };
-                },
-                processWebSocketMessage(message) { /* ... (Keep existing implementation) ... */
-                    for (const key in message) {
-                        if (!message.hasOwnProperty(key)) { continue; }
-                        if (key === 'log_entry') {
-                            if (typeof message.log_entry === 'object' && message.log_entry !== null && message.log_entry.id != null) {
-                                if (!Array.isArray(this.logs)) { this.logs = []; }
-                                this.logs.push(message.log_entry);
-                                if (this.logs.length > MAX_LOG_ENTRIES) {
-                                    this.logs.splice(0, this.logs.length - MAX_LOG_ENTRIES);
-                                }
-                                this.scrollToBottom(this.$refs.actionLogContainer);
-                            } else { console.warn(`Received invalid 'log_entry':`, message.log_entry); }
-                        } else if (key === 'logs') {
-                            if (Array.isArray(message.logs)) {
-                                console.log("Received full 'logs' array, replacing local logs.");
-                                this.logs = message.logs.slice(-MAX_LOG_ENTRIES);
-                                this.scrollToBottom(this.$refs.actionLogContainer);
-                            } else { console.warn(`Received 'logs' key but the value was not an array:`, message.logs); }
-                        } else if (this.$data.hasOwnProperty(key)) {
-                            // Added check for minimap properties managed by polling
-                            if (key === 'minimapSrc' || key === 'minimapVisible') {
-                                // console.warn(`WebSocket tried to update '${key}', but it's managed by polling. Ignoring.`);
-                                continue; // Skip WebSocket updates for these specific properties
-                            }
-                            if (this[key] === null || typeof this[key] === typeof message[key] || (Array.isArray(this[key]) && Array.isArray(message[key])) || (typeof this[key] === 'object' && typeof message[key] === 'object' && !Array.isArray(this[key]) && !Array.isArray(message[key]))) {
-                                this[key] = message[key];
-                            } else {
-                                console.warn(`Type mismatch for key '${key}'. Local type: ${typeof this[key]} (${Array.isArray(this[key]) ? 'Array' : 'Object'}), Received type: ${typeof message[key]} (${Array.isArray(message[key]) ? 'Array' : 'Object'}). Update skipped.`);
-                            }
-                        }
-                    }
-                },
-                scheduleReconnect() { /* ... (Keep existing implementation) ... */
-                    if (this.reconnectTimer) { return; } this.websocketStatus = 'Reconnecting...';
-                    console.log(`Scheduling reconnect in ${this.reconnectInterval / 1000} seconds...`);
-                    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connectWebSocket(); }, this.reconnectInterval);
-                },
-                scrollToBottom(container) { /* ... (Keep existing implementation) ... */
-                    if (container) { this.$nextTick(() => { container.scrollTop = container.scrollHeight; }); }
-                },
-                formatLogText(text) { /* ... (Keep existing implementation) ... */
-                    if (typeof text !== 'string' || !text) { return text; }
-                    let formattedText = text;
-                    const coordRegex = /(\[\d+,\s*\d+\])/g;
-                    formattedText = formattedText.replace(coordRegex, (match) => {
-                        return `<span class="coordinate">${match}</span>`;
-                    });
-                    const actionSequenceRegex = /(Action:\s*)([ABUDLRS][\s;ABUDLRS]*?)(?=[^ABUDLRS\s;]|$)/g;
-                    formattedText = formattedText.replace(actionSequenceRegex, (fullMatch, prefix, sequence) => {
-                        let cleanedSequence = sequence.replace(/;/g, '').replace(/\s+/g, ' ').trim();
-                        let highlightedSequence = '';
-                        for (const actionChar of cleanedSequence) {
-                            if (actionChar === ' ') { highlightedSequence += ' '; }
-                            else if (/[AB]/.test(actionChar)) { highlightedSequence += `<span class="action-type-ab">${actionChar}</span>`; }
-                            else if (/[UDLRS]/.test(actionChar)) { highlightedSequence += `<span class="action-type-direction">${actionChar}</span>`; }
-                        }
-                        return prefix + highlightedSequence;
-                    });
-                    return formattedText;
-                },
+					// --- Start Minimap Polling ---
+					console.log(`Starting minimap polling every ${this.minimapPollInterval}ms.`);
+					this.updateMinimap(); // Initial attempt to load
+					this.minimapTimer = setInterval(this.updateMinimap, this.minimapPollInterval);
+				},
+				beforeUnmount() {
+					console.log("Vue app unmounting. Cleaning up WebSocket and timers.");
+					// --- Existing Cleanup ---
+					if (this.reconnectTimer) {
+						clearTimeout(this.reconnectTimer);
+						this.reconnectTimer = null;
+					}
+					if (this.websocket) {
+						console.log("Closing WebSocket connection.");
+						this.websocket.onclose = null;
+						this.websocket.close(1000, "Client component unmounting");
+						this.websocket = null;
+					}
 
-                // --- New Methods for Minimap ---
-                updateMinimap() {
-                    // Force browser to re-fetch by adding a changing query parameter (cache buster)
-                    // console.log('Polling minimap...'); // Optional: for debugging
-                    this.minimapSrc = `../minimap.png?t=${Date.now()}`;
-                    // Visibility is handled by the load/error events below
-                },
-                handleMinimapLoad() {
-                    // Image loaded successfully (non-zero bytes, valid image format)
-                    // console.log('Minimap loaded.'); // Optional: for debugging
-                    this.minimapVisible = true;
-                },
-                handleMinimapError(event) {
-                    // Image failed to load (could be 0 bytes, missing, network error, corrupted)
-                    // console.log('Minimap error - hiding.'); // Optional: for debugging
-                    this.minimapVisible = false;
-                    // Prevent broken image icon showing by setting src to empty / transparent pixel?
-                    // event.target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // Optional: Use a transparent pixel on error
-                }
-            },
-            mounted() {
-                console.log("Vue app mounted.");
-                // --- Existing WebSocket Connection ---
-                this.connectWebSocket();
-
-                // --- Start Minimap Polling ---
-                console.log(`Starting minimap polling every ${this.minimapPollInterval}ms.`);
-                this.updateMinimap(); // Initial attempt to load
-                this.minimapTimer = setInterval(this.updateMinimap, this.minimapPollInterval);
-            },
-            beforeUnmount() {
-                console.log("Vue app unmounting. Cleaning up WebSocket and timers.");
-                // --- Existing Cleanup ---
-                if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-                if (this.websocket) { console.log('Closing WebSocket connection.'); this.websocket.onclose = null; this.websocket.close(1000, "Client component unmounting"); this.websocket = null; }
-
-                // --- Stop Minimap Polling ---
-                if (this.minimapTimer) {
-                    console.log("Stopping minimap polling.");
-                    clearInterval(this.minimapTimer);
-                    this.minimapTimer = null;
-                }
-            }
-        }).mount('#app');
-    </script>
-
-</body>
-
+					// --- Stop Minimap Polling ---
+					if (this.minimapTimer) {
+						console.log("Stopping minimap polling.");
+						clearInterval(this.minimapTimer);
+						this.minimapTimer = null;
+					}
+				},
+			}).mount("#app");
+		</script>
+	</body>
 </html>
