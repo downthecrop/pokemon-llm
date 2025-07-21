@@ -304,9 +304,6 @@ if __name__ == '__main__':
                 log.error("--max_loops requires an argument (number of loops).")
                 sys.exit(1)
         
-        # skip --windowed command line arg
-        case '--windowed':
-            pass
         case _:
             log.warning(f"Unknown command line argument: {arg}")
             i += 1

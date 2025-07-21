@@ -1,4 +1,4 @@
-pyinstaller # install pyinstaller to be able to run with --windowed command arg
+pyinstaller
 openai
 python-dotenv
 httpx
