@@ -1,4 +1,5 @@
 # client_setup.py
+import argparse
 import os
 import logging
 from openai import OpenAI, APIError
@@ -18,6 +19,19 @@ DEFAULT_GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 DEFAULT_TOGETHER_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 DEFAULT_GROK_MODEL = "grok-3-mini"
 DEFAULT_ANTHOPIC_MODEL = "claude-sonnet-4-20250514"
+
+DEFAULT_MODEL_BY_MODE = {
+    "OPENAI": DEFAULT_OPENAI_MODEL,
+    "GEMINI": DEFAULT_GEMINI_MODEL,
+    "OLLAMA": DEFAULT_OLLAMA_MODEL,
+    "LMSTUDIO": DEFAULT_LMSTUDIO_MODEL,
+    "GROQ": DEFAULT_GROQ_MODEL,
+    "TOGETHER": DEFAULT_TOGETHER_MODEL,
+    "GROK": DEFAULT_GROK_MODEL,
+    "ANTHOPIC": DEFAULT_ANTHOPIC_MODEL,
+}
+
+MODES = list(DEFAULT_MODEL_BY_MODE.keys())
 
 REASONING_EFFORT = "low" # Default reasoning effort level, can be "low", "medium", or "high" for models that support it
 ONE_IMAGE_PER_PROMPT = True # Set to False to allow multiple images per prompt (Often performs better with single image)
@@ -47,8 +61,48 @@ def get_config(env_var: str, default_value: str) -> str:
          log.info(f"Config '{env_var}': {'Present' if value else 'Not Set'} (Source: {source})")
     return value
 
+# helper function for selecting AI model
+def parse_mode_arg(modes, default_mode=DEFAULT_MODE):
+    parser = argparse.ArgumentParser(description="Parse LLM mode argument", add_help=False)
+
+    parser.add_argument(
+        '--mode',
+        choices=modes,
+        help='LLM mode to use (choose from the supported modes)'
+    )
+
+    # Use parse_known_args to ignore other arguments
+    args, _ = parser.parse_known_args()
+    mode = args.mode
+
+    if not mode:
+        print("\nNo LLM mode specified via command line.")
+        print("Please choose the LLM mode from the list below:")
+        for i, m in enumerate(modes, start=1):
+            print(f"  {i}. {m}")
+        choice = input("Enter the number of your choice: ").strip()
+
+        try:
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(modes):
+                mode = modes[choice_num - 1]
+                print(f"Great! You selected: {mode}")
+            else:
+                print(f"Invalid choice. Defaulting to '{default_mode}'.")
+                mode = default_mode
+        except ValueError:
+            print(f"Invalid input. Defaulting to '{default_mode}'.")
+            mode = default_mode
+    else:
+        print(f"LLM mode specified via command line: {mode}")
+
+    # Assuming you have this dictionary defined somewhere:
+    print(f"Using default model: {DEFAULT_MODEL_BY_MODE[mode]}")
+
+    return mode
+
 def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
-    MODE = get_config("MODE", DEFAULT_MODE)
+    MODE = parse_mode_arg(MODES)
 
     client = None
     model = None
@@ -202,4 +256,5 @@ def setup_llm_client() -> tuple[OpenAI | None, str | None, str | None]:
             log.warning(f"Unexpected error verifying {MODE} connection: {e}. Proceeding cautiously.")
 
     log.info(f"LLM Client setup complete. Image Detail: {IMAGE_DETAIL}")
+    print(f"Client: {client}, model: {model}, supports_reasoning: {supports_reasoning}")
     return client, model, supports_reasoning

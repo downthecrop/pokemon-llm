@@ -1,3 +1,5 @@
+import argparse
+from email import message
 import subprocess
 import socket
 import time
@@ -6,7 +8,7 @@ import sys
 import asyncio
 import logging
 
-from helpers import DEFAULT_ROM
+from helpers import DEFAULT_ROM, parse_max_loops_fn
 from interactive import interactive_console
 from llmdriver import run_auto_loop, MODEL
 from helpers import send_command
@@ -14,14 +16,11 @@ from websocket_service import broadcast_message, run_server_forever as start_web
 from benchmark import load
 
 # --- Configuration (excluding WebSocket specific) ---
-PORT = 8888 # mGBA socket port
-LOAD_SAVESTATE = False # should we load a savestate? Updated by CLI
-MGBA_EXE = '/Applications/mGBA.app/Contents/MacOS/mGBA' # Adjust if needed
-LUA_SCRIPT = './socketserver.lua' # Adjust if needed
-benchmark_path = None   # default: no external benchmark
+import config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s: %(message)s')
 log = logging.getLogger("main")
+
 
 # Initialize state - llmdriver will update this
 state = {
@@ -39,25 +38,25 @@ state = {
     "log_entries": []
 }
 
-def start_mgba_with_scripting(rom_path=None, port=PORT):
+def start_mgba_with_scripting(rom_path=None, port=config.PORT):
     rom_path = rom_path or os.path.join(os.path.dirname(__file__), DEFAULT_ROM)
     if not os.path.exists(rom_path):
         log.error(f"ROM file not found: {rom_path}")
         sys.exit(1)
-    if not os.path.exists(MGBA_EXE):
-         log.error(f"mGBA executable not found: {MGBA_EXE}")
+    if not os.path.exists(config.MGBA_EXE):
+         log.error(f"mGBA executable not found: {config.MGBA_EXE}")
          sys.exit(1)
-    if not os.path.exists(LUA_SCRIPT):
-        log.error(f"Lua script not found: {LUA_SCRIPT}")
+    if not os.path.exists(config.LUA_SCRIPT):
+        log.error(f"Lua script not found: {config.LUA_SCRIPT}")
         sys.exit(1)
 
-    cmd = [MGBA_EXE, '--script', LUA_SCRIPT, rom_path]
+    cmd = [config.MGBA_EXE, '--script', config.LUA_SCRIPT, rom_path]
     log.info(f"Starting mGBA: {' '.join(cmd)}")
     try:
         # Redirect stdout to DEVNULL, capture stderr
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     except FileNotFoundError:
-        log.error(f"Failed to start mGBA. Ensure '{MGBA_EXE}' is correct and executable.")
+        log.error(f"Failed to start mGBA. Ensure '{config.MGBA_EXE}' is correct and executable.")
         sys.exit(1)
     except Exception as e:
         log.error(f"Error starting mGBA: {e}", exc_info=True)
@@ -86,8 +85,8 @@ def start_mgba_with_scripting(rom_path=None, port=PORT):
             # Keep blocking for simplicity in current setup (console/llmdriver manage reads)
             sock.setblocking(True)
             log.info(f"Connected to mGBA scripting server on port {port}")
-            if(LOAD_SAVESTATE): # Check the global LOAD_SAVESTATE flag
-                log.info("LOAD_SAVESTATE is True, attempting to load savestate 1.")
+            if(config.LOAD_SAVESTATE): # Check the global config.LOAD_SAVESTATE flag
+                log.info("config.LOAD_SAVESTATE is True, attempting to load savestate 1.")
                 send_command(sock, "LOADSTATE 1")
             return proc, sock # Success
         except ConnectionRefusedError:
@@ -117,6 +116,55 @@ def start_mgba_with_scripting(rom_path=None, port=PORT):
         proc.wait()
     sys.exit(1)
 
+
+# helper functions to reduce redundant code
+
+
+async def shutdown_socket(sock, is_async):
+  if sock:
+      try:
+          log.info("Sending quit command to mGBA script...")
+          try:
+              sock.sendall(b"quit\n")
+              
+              if is_async:
+                await asyncio.sleep(0.2)
+              else:
+                time.sleep(0.2) 
+              
+          except OSError as send_err:
+              log.warning(f"Could not send quit command to mGBA (socket likely closed): {send_err}")
+          sock.close()
+          log.info("mGBA socket closed.")
+      except Exception as e:
+          log.error(f"Error closing mGBA socket: {e}")
+          
+async def terminate_process(proc, is_async):
+  if proc and proc.poll() is None:
+      log.info("Terminating mGBA process...")
+      proc.terminate()
+      try:
+        if is_async:
+            await asyncio.to_thread(proc.wait, timeout=5)
+        else:
+            proc.wait(timeout=5)
+            
+        log.info("mGBA process terminated.")
+      except subprocess.TimeoutExpired:
+         log.warning("mGBA process did not terminate gracefully, killing.")
+         proc.kill()
+         if is_async: 
+            try:
+               await asyncio.to_thread(proc.wait) 
+            except Exception as wait_err:
+               log.error(f"Error waiting for mGBA process after kill: {wait_err}")
+         else:
+            proc.wait() 
+               
+      except Exception as e:
+            log.error(f"Error terminating mGBA process: {e}")
+
+
 # --- Main Execution Logic ---
 async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
     """Asynchronous main function to run mGBA, WebSocket server, and optionally the LLM loop."""
@@ -126,7 +174,7 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
     tasks_to_await = []
 
     try:
-        # LOAD_SAVESTATE global will be used by start_mgba_with_scripting
+        # config.LOAD_SAVESTATE global will be used by start_mgba_with_scripting
         proc, sock = start_mgba_with_scripting()
 
         if auto:
@@ -136,10 +184,10 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
             tasks_to_await.append(websocket_task)
 
             benchmark = None
-            if benchmark_path is not None:
+            if config.benchmark_path is not None:
                 try:
-                    benchmark = load(benchmark_path)
-                    log.info("Loaded custom benchmark from %s → %s", benchmark_path, type(benchmark).__name__)
+                    benchmark = load(config.benchmark_path)
+                    log.info("Loaded custom benchmark from %s → %s", config.benchmark_path, type(benchmark).__name__)
                     max_loops_arg = benchmark.max_loops
                 except Exception as e:
                     log.critical("Failed to load benchmark file: %s", e, exc_info=True)
@@ -210,36 +258,8 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
         if pending_cancellations:
             await asyncio.gather(*pending_cancellations, return_exceptions=True)
 
-
-        if sock:
-            try:
-                log.info("Sending quit command to mGBA script...")
-                try:
-                    sock.sendall(b"quit\n")
-                    await asyncio.sleep(0.2) 
-                except OSError as send_err:
-                     log.warning(f"Could not send quit command to mGBA (socket likely closed): {send_err}")
-
-                sock.close()
-                log.info("mGBA socket closed.")
-            except Exception as e:
-                log.error(f"Error closing mGBA socket: {e}")
-        if proc and proc.poll() is None:
-            log.info("Terminating mGBA process...")
-            proc.terminate()
-            try:
-                await asyncio.to_thread(proc.wait, timeout=5)
-                log.info("mGBA process terminated.")
-            except subprocess.TimeoutExpired:
-                log.warning("mGBA process did not terminate gracefully, killing.")
-                proc.kill()
-                try:
-                    await asyncio.to_thread(proc.wait) 
-                except Exception as wait_err:
-                    log.error(f"Error waiting for mGBA process after kill: {wait_err}")
-            except Exception as e:
-                 log.error(f"Error waiting for mGBA process termination: {e}")
-
+        await shutdown_socket(sock, is_async = True)
+        await terminate_process(proc, is_async = True)
         log.info("Async cleanup complete.")
 
 
@@ -247,42 +267,44 @@ if __name__ == '__main__':
     # Default values for command line arguments
     auto_mode = False
     parsed_max_loops = None
-    # LOAD_SAVESTATE is a global, initialized to False at the top of the script.
+    # config.LOAD_SAVESTATE is a global, initialized to False in the config.py.
+
 
     cli_args = sys.argv[1:]
     i = 0
+    
     while i < len(cli_args):
-        arg = cli_args[i]
-        if arg == '--auto':
+      arg = cli_args[i]
+      match arg:
+        case '--auto':
             auto_mode = True
-            i += 1
-        elif arg == '--load_savestate':
-            LOAD_SAVESTATE = True 
-            log.info("Command line argument: --load_savestate detected. LOAD_SAVESTATE set to True.")
-            i += 1
-        elif arg == '--benchmark':
+        case '--load_savestate':
+            config.LOAD_SAVESTATE = True 
+            log.info("Command line argument: --load_savestate detected. config.LOAD_SAVESTATE set to True.")
+        case '--benchmark':
             if i + 1 >= len(cli_args):
                 log.error("--benchmark requires a file path argument")
                 sys.exit(1)
-            benchmark_path = cli_args[i + 1]
+            config.benchmark_path = cli_args[i + 1]
             i += 2
-        elif arg == '--max_loops':
+        case '--max_loops':
+            
             if i + 1 < len(cli_args):
-                try:
-                    value = int(cli_args[i+1])
-                    if value <= 0:
-                        log.error("--max_loops value must be a positive integer.")
-                        sys.exit(1)
-                    parsed_max_loops = value
-                    log.info(f"Command line argument: --max_loops set to {parsed_max_loops}.")
-                    i += 2 
-                except ValueError:
-                    log.error(f"--max_loops expects an integer value, got: {cli_args[i+1]}")
+
+                value, success, message = parse_max_loops_fn(int(cli_args[i+1])) # pass in loops           
+                if not success:
+                    log.error(message)
                     sys.exit(1)
+                else:
+                    parsed_max_loops = value
+                    log.info(message)
+                    i += 2
+
             else:
                 log.error("--max_loops requires an argument (number of loops).")
                 sys.exit(1)
-        else:
+        
+        case _:
             log.warning(f"Unknown command line argument: {arg}")
             i += 1
 
@@ -310,28 +332,9 @@ if __name__ == '__main__':
             log.critical(f"Critical error in synchronous execution: {e}", exc_info=True)
         finally:
             log.info("Cleaning up synchronous resources...")
-            if sock:
-                try:
-                    log.info("Sending quit command to mGBA script...")
-                    try:
-                        sock.sendall(b"quit\n")
-                        time.sleep(0.2) 
-                    except OSError as send_err:
-                        log.warning(f"Could not send quit command to mGBA (socket likely closed): {send_err}")
-                    sock.close()
-                    log.info("mGBA socket closed.")
-                except Exception as e:
-                     log.error(f"Error closing mGBA socket: {e}")
-            if proc and proc.poll() is None:
-                log.info("Terminating mGBA process...")
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                    log.info("mGBA process terminated.")
-                except subprocess.TimeoutExpired:
-                    log.warning("mGBA process did not terminate gracefully, killing.")
-                    proc.kill()
-                    proc.wait() 
-                except Exception as e:
-                     log.error(f"Error terminating mGBA process: {e}")
+            asyncio.run(shutdown_socket(sock, is_async = False))
+            asyncio.run(terminate_process(proc, is_async = False))
             log.info("--- Interactive run finished ---")
+            
+            
+

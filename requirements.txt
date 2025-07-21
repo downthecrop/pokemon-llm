@@ -1,0 +1,7 @@
+pyinstaller
+openai
+python-dotenv
+httpx
+Pillow
+websockets
+tiktoken
