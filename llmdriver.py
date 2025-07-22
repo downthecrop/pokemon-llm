@@ -15,7 +15,9 @@ import functools
 from PIL import Image
 from token_coutner import count_tokens, calculate_prompt_tokens
 
-from helpers import prep_llm, touch_controls_path_find, parse_optional_fenced_json
+from pyAIAgent.game.state import prep_llm
+from pyAIAgent.navigation import touch_controls_path_find
+from pyAIAgent.json_parser import parse_optional_fenced_json
 from prompts import build_system_prompt, get_summary_prompt
 from client_setup import setup_llm_client
 from benchmark import Benchmark
@@ -150,7 +152,7 @@ def summarize_and_reset(benchmark: Benchmark = None):
     log.info(f"LLM Summary generated ({summary_output_tokens} tokens): {str(json_object)}")
 
     benchInstructions = ""
-    if(benchmark != None):
+    if benchmark is not None:
         benchInstructions = benchmark.instructions
 
     new_system_prompt_content = build_system_prompt(summary_text, benchInstructions)
@@ -187,7 +189,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
     minimap = payload.pop("minimap", None)
 
     if not MINIMAP_2D:
-        print(f"Minimap 2D disabled, removing minimap_2d from payload.")
+        print("Minimap 2D disabled, removing minimap_2d from payload.")
         payload.pop("minimap_2d", None)
 
     if not isinstance(payload, dict):
@@ -363,7 +365,7 @@ def llm_stream_action(state_data: dict, timeout: float = STREAM_TIMEOUT, benchma
 
         # Fallback: last line matching ACTION_RE or COORD_RE
         if action is None:
-            lines = [l.strip() for l in full_output.splitlines() if l.strip()]
+            lines = [line.strip() for line in full_output.splitlines() if line.strip()]
             if lines:
                 last = lines[-1]
                 # plain “action” string
@@ -410,7 +412,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
     b64_mm = None
 
     benchInstructions = ""
-    if(benchmark != None):
+    if benchmark is not None:
         benchInstructions = benchmark.instructions
         logging.info(f"Added bench instructions: {benchInstructions}")
     chat_history = [{"role": "system", "content": build_system_prompt("", benchInstructions)}]
@@ -427,7 +429,7 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
             log.info("Requesting game state from mGBA...")
             current_mGBA_state = prep_llm(sock)
 
-            if(benchmark != None):
+            if benchmark is not None:
                 # check if we complted the bench
                 if(benchmark.validation(current_mGBA_state)):
                     break
@@ -511,13 +513,17 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
                 log.error(f"Failed to combine minimap: {e}")
 
         b64_ss = encode_image_base64(SCREENSHOT_PATH)
-        if b64_ss: llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": IMAGE_DETAIL}}
-        else: llm_input_state["screenshot"] = None
+        if b64_ss:
+            llm_input_state["screenshot"] = {"image_url": {"url": f"data:image/png;base64,{b64_ss}", "detail": IMAGE_DETAIL}}
+        else:
+            llm_input_state["screenshot"] = None
 
-        if(not ONE_IMAGE_PER_PROMPT and MINIMAP_ENABLED):
+        if not ONE_IMAGE_PER_PROMPT and MINIMAP_ENABLED:
             b64_mm = encode_image_base64(MINIMAP_PATH)
-            if b64_mm: llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": IMAGE_DETAIL}}
-            else: llm_input_state["minimap"] = None
+            if b64_mm:
+                llm_input_state["minimap"] = {"image_url": {"url": f"data:image/png;base64,{b64_mm}", "detail": IMAGE_DETAIL}}
+            else:
+                llm_input_state["minimap"] = None
 
         log.info(f"Pre-LLM state update & image prep took {time.time() - state_update_start:.2f}s. SS:{bool(b64_ss)}, MM:{bool(b64_mm)}")
 
@@ -615,5 +621,5 @@ async def run_auto_loop(sock, state: dict, broadcast_func, interval: float = 8.0
 
 
     log.info("Auto loop terminated.")
-    if(benchmark != None):
+    if benchmark is not None:
         benchmark.finalize(current_mGBA_state, MODEL)

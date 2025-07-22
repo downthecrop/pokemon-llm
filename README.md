@@ -11,7 +11,7 @@
 
 ## DUMP MAP IMAGE
 
-python dump.py red.gb 56 -o mart.png -d --start 7,7 --end 0,2
+python -m tools.map_dumper red.gb 56 -o mart.png -d --start 7,7 --end 0,2
 
 | Normal                          | Debug                          | Path                                | Minimal                          |
 | ------------------------------- | ------------------------------ | ----------------------------------- | -------------------------------- |

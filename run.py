@@ -1,5 +1,4 @@
 import argparse
-from email import message
 import subprocess
 import socket
 import time
@@ -8,12 +7,13 @@ import sys
 import asyncio
 import logging
 
-from helpers import DEFAULT_ROM, parse_max_loops_fn
-from interactive import interactive_console
-from llmdriver import run_auto_loop, MODEL
-from helpers import send_command
+from pyAIAgent.utils.misc import parse_max_loops_fn
+from pyAIAgent.utils.socket_utils import send_command
+from pyAIAgent.game.state import DEFAULT_ROM
 from websocket_service import broadcast_message, run_server_forever as start_websocket_service
 from benchmark import load
+from interactive import interactive_console
+from llmdriver import run_auto_loop, MODEL
 
 # --- Configuration (excluding WebSocket specific) ---
 import config
@@ -94,7 +94,8 @@ def start_mgba_with_scripting(rom_path=None, port=config.PORT):
             if proc.poll() is not None: # Check again if mGBA died while waiting
                  stderr_output = proc.stderr.read()
                  log.error(f"mGBA process terminated while attempting to connect. Exit code: {proc.returncode}")
-                 if stderr_output: log.error(f"mGBA stderr:\n{stderr_output.strip()}")
+                 if stderr_output:
+                     log.error(f"mGBA stderr:\n{stderr_output.strip()}")
                  sys.exit(1)
             time.sleep(1.5) # Wait longer between retries
         except socket.timeout:
@@ -278,9 +279,11 @@ if __name__ == '__main__':
       match arg:
         case '--auto':
             auto_mode = True
+            i += 1
         case '--load_savestate':
             config.LOAD_SAVESTATE = True 
             log.info("Command line argument: --load_savestate detected. config.LOAD_SAVESTATE set to True.")
+            i += 1
         case '--benchmark':
             if i + 1 >= len(cli_args):
                 log.error("--benchmark requires a file path argument")
@@ -290,15 +293,14 @@ if __name__ == '__main__':
         case '--max_loops':
             
             if i + 1 < len(cli_args):
-
-                value, success, message = parse_max_loops_fn(int(cli_args[i+1])) # pass in loops           
+                value, success, message = parse_max_loops_fn(cli_args[i+1]) # pass in loops
                 if not success:
                     log.error(message)
                     sys.exit(1)
                 else:
                     parsed_max_loops = value
                     log.info(message)
-                    i += 2
+                i += 2
 
             else:
                 log.error("--max_loops requires an argument (number of loops).")
