@@ -4,17 +4,16 @@ import sys
 import select
 import json
 import logging
-from helpers import (
-    capture,
-    readrange,
+from pyAIAgent.utils.image_utils import capture
+from pyAIAgent.utils.socket_utils import readrange, send_command
+from pyAIAgent.game.state import (
     get_party_text,
     get_badges_text,
     get_location,
-    send_command,
     prep_llm,
     print_battle,
-    touch_controls_path_find
 )
+from pyAIAgent.navigation import touch_controls_path_find
 
 log = logging.getLogger('interactive')
 
@@ -79,7 +78,7 @@ def cmd_touch(sock, pos):
 
     mid, current_x, current_y, _, _ = loc
     path_actions = touch_controls_path_find(mid, [int(current_x), int(current_y)], [int(x),int(y)])
-    if(path_actions != None):
+    if path_actions is not None:
         send_command(sock, path_actions)
     else:
         logging.info("Invalid Path")
@@ -166,7 +165,8 @@ def interactive_console(sock):
                 parts = cmd_full.split(maxsplit=2)
                 cmd = parts[0].lower()
 
-                if cmd in ("quit", "exit"): break
+                if cmd in ("quit", "exit"):
+                    break
                 elif cmd.startswith("cap"): # Allow 'cap' or 'capture'
                     fn = parts[1] if len(parts) > 1 else None
                     cmd_capture(sock, fn)
@@ -181,11 +181,16 @@ def interactive_console(sock):
                         print("Usage: touch x,y")
                     else:
                         cmd_touch(sock, parts[1])
-                elif cmd == "party": cmd_party(sock)
-                elif cmd == "badges": cmd_badges(sock)
-                elif cmd == "prep": cmd_prep(sock)
-                elif cmd in ("loc", "location", "pos", "position"): cmd_location(sock)
-                elif cmd in ("battle", "inbattle"): cmd_print_battle(sock)
+                elif cmd == "party":
+                    cmd_party(sock)
+                elif cmd == "badges":
+                    cmd_badges(sock)
+                elif cmd == "prep":
+                    cmd_prep(sock)
+                elif cmd in ("loc", "location", "pos", "position"):
+                    cmd_location(sock)
+                elif cmd in ("battle", "inbattle"):
+                    cmd_print_battle(sock)
                 else:
                     # Forward unknown commands directly to mGBA Lua script
                     log.debug(f"Forwarding command to mGBA: {cmd_full}")

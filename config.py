@@ -1,5 +1,5 @@
 import sys
-from helpers import find_mgba
+from pyAIAgent.utils.file_utils import find_mgba
 
 PORT = 8888 # mGBA socket port
 LOAD_SAVESTATE = False # should we load a savestate? Updated by CLI

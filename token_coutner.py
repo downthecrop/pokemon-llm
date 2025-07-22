@@ -27,8 +27,10 @@ except Exception as e:
 
 def count_tokens(text: str) -> int:
     """Estimates token count for a given text using the loaded encoding."""
-    if not text: return 0
-    if not encoding: return len(text) // 4
+    if not text:
+        return 0
+    if not encoding:
+        return len(text) // 4
     try:
         return len(encoding.encode(text))
     except Exception as e:
