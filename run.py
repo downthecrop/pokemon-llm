@@ -265,54 +265,32 @@ async def main_async(auto, max_loops_arg=None): # Added max_loops_arg
 
 
 if __name__ == '__main__':
-    # Default values for command line arguments
-    auto_mode = False
-    parsed_max_loops = None
-    # config.LOAD_SAVESTATE is a global, initialized to False in the config.py.
+    def max_loops_type(value_str):
+        """Custom type for argparse to validate max_loops."""
+        value, success, message = parse_max_loops_fn(value_str)
+        if not success:
+            raise argparse.ArgumentTypeError(message)
+        log.info(message)
+        return value
 
+    parser = argparse.ArgumentParser(description="Run the pyAIAgent.")
+    parser.add_argument('--auto', action='store_true', help='Enable auto mode, starting the LLM driver.')
+    parser.add_argument('--load_savestate', action='store_true', help='Load savestate 1 on mGBA start.')
+    parser.add_argument('--benchmark', type=str, metavar='PATH', help='Path to a benchmark file to run.')
+    parser.add_argument('--max_loops', type=max_loops_type, metavar='N', help='Maximum number of loops for the LLM driver to run.')
 
-    cli_args = sys.argv[1:]
-    i = 0
-    
-    while i < len(cli_args):
-      arg = cli_args[i]
-      match arg:
-        case '--auto':
-            auto_mode = True
-            i += 1
-        case '--load_savestate':
-            config.LOAD_SAVESTATE = True 
-            log.info("Command line argument: --load_savestate detected. config.LOAD_SAVESTATE set to True.")
-            i += 1
-        case '--benchmark':
-            if i + 1 >= len(cli_args):
-                log.error("--benchmark requires a file path argument")
-                sys.exit(1)
-            config.benchmark_path = cli_args[i + 1]
-            i += 2
-        case '--max_loops':
-            
-            if i + 1 < len(cli_args):
-                value, success, message = parse_max_loops_fn(cli_args[i+1]) # pass in loops
-                if not success:
-                    log.error(message)
-                    sys.exit(1)
-                else:
-                    parsed_max_loops = value
-                    log.info(message)
-                i += 2
+    args = parser.parse_args()
 
-            else:
-                log.error("--max_loops requires an argument (number of loops).")
-                sys.exit(1)
-        
-        case _:
-            log.warning(f"Unknown command line argument: {arg}")
-            i += 1
+    # Set global config based on parsed arguments
+    if args.load_savestate:
+        config.LOAD_SAVESTATE = True
+        log.info("Command line argument: --load_savestate detected. config.LOAD_SAVESTATE set to True.")
+    if args.benchmark:
+        config.benchmark_path = args.benchmark
 
-    if auto_mode:
+    if args.auto:
         try:
-            asyncio.run(main_async(auto=True, max_loops_arg=parsed_max_loops))
+            asyncio.run(main_async(auto=True, max_loops_arg=args.max_loops))
         except KeyboardInterrupt:
             log.info("KeyboardInterrupt received, stopping async tasks...")
         except Exception as e:
@@ -320,12 +298,13 @@ if __name__ == '__main__':
         finally:
             log.info("--- Async run finished ---")
     else:
-        # --- Synchronous Mode ---
+        # --- Synchronous/Interactive Mode ---
         log.info("Interactive mode enabled. WebSocket server and LLM driver will NOT run.")
         proc = sock = None
         try:
-            proc, sock = start_mgba_with_scripting() 
-            interactive_console(sock) 
+            # config.LOAD_SAVESTATE is respected by start_mgba_with_scripting
+            proc, sock = start_mgba_with_scripting()
+            interactive_console(sock)
         except KeyboardInterrupt:
              log.info("KeyboardInterrupt received, stopping interactive console...")
         except SystemExit:
@@ -334,8 +313,9 @@ if __name__ == '__main__':
             log.critical(f"Critical error in synchronous execution: {e}", exc_info=True)
         finally:
             log.info("Cleaning up synchronous resources...")
-            asyncio.run(shutdown_socket(sock, is_async = False))
-            asyncio.run(terminate_process(proc, is_async = False))
+            # Use asyncio.run for these async cleanup functions even in sync mode
+            asyncio.run(shutdown_socket(sock, is_async=False))
+            asyncio.run(terminate_process(proc, is_async=False))
             log.info("--- Interactive run finished ---")
             
             
